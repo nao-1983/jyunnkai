@@ -696,6 +696,28 @@
     padding: 6px 16px 0;
   }
 
+  /* Print-only PDF output */
+  .print-container { display: none; }
+  @media print {
+    @page { size: A4; margin: 12mm 10mm; }
+    body {
+      background: white !important;
+      background-image: none !important;
+    }
+    body > *:not(.print-container) { display: none !important; }
+    .print-container {
+      display: block !important;
+      padding: 0 !important;
+      margin: 0 !important;
+      width: 100% !important;
+      max-width: none !important;
+      box-shadow: none !important;
+    }
+    .print-page { page-break-after: always; }
+    .print-page:last-child { page-break-after: auto; }
+    .print-row { page-break-inside: avoid; break-inside: avoid; }
+  }
+
   /* Hints */
   .hint-box {
     background: #fbf4f1;
@@ -994,10 +1016,12 @@
 
 <div class="toast" id="toast"></div>
 
+<!-- Print-only container (populated when PDF button is clicked) -->
+<div class="print-container" id="printContainer"></div>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.3/html2pdf.bundle.min.js"></script>
 <script>
 /* ============================================================
    STATE
@@ -1845,17 +1869,14 @@ window.openChunk = function(idx) {
 };
 
 /* ============================================================
-   PDF EXPORT (printable route report)
+   PDF EXPORT (via browser print dialog → Save as PDF)
+   Works reliably on iPad / Mac / Windows / Android
    ============================================================ */
 function buildRouteReportElement() {
   const el = document.createElement("div");
   el.style.cssText = `
-    position: absolute;
-    left: -9999px;
-    top: 0;
-    width: 794px;
     font-family: 'Noto Sans JP', 'Zen Kaku Gothic New', sans-serif;
-    padding: 32px;
+    padding: 0;
     background: #ffffff;
     color: #14161c;
     line-height: 1.5;
@@ -1881,7 +1902,7 @@ function buildRouteReportElement() {
       ? `<span style="display:inline-block;font-size:10px;background:#f6f4ee;border:1px solid #e3dfd4;padding:1px 6px;border-radius:2px;color:#5a5e6b;margin-right:6px;vertical-align:middle;">${escapeHTML(s.prefecture)}</span>`
       : "";
     return `
-      <div style="display:flex;gap:14px;padding:14px 0;border-bottom:1px solid #e3dfd4;page-break-inside:avoid;break-inside:avoid;">
+      <div class="print-row" style="display:flex;gap:14px;padding:14px 0;border-bottom:1px solid #e3dfd4;">
         <div style="flex-shrink:0;width:36px;height:36px;background:#d94824;color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;">${i+1}</div>
         <div style="flex:1;min-width:0;">
           <div style="font-weight:700;font-size:15px;margin-bottom:3px;">${prefBadge}${escapeHTML(s.name)}</div>
@@ -1931,40 +1952,32 @@ async function generatePDF() {
     toast("先にルートを最適化してください", true);
     return;
   }
-  if (typeof html2pdf === "undefined") {
-    toast("PDFライブラリ読み込み中です。少し待ってから再試行してください", true);
-    return;
-  }
 
   const btn = $("btnExportPDF");
   btn.disabled = true;
-  showProgress("PDF生成中...", 20);
-
-  const reportEl = buildRouteReportElement();
-  document.body.appendChild(reportEl);
-
-  const today = new Date().toISOString().slice(0, 10);
-  const filename = state.filter
-    ? `route_${state.filter}_${today}.pdf`
-    : `route_${today}.pdf`;
 
   try {
-    await html2pdf().set({
-      margin: [10, 10, 12, 10],
-      filename,
-      image: { type: "jpeg", quality: 0.95 },
-      html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff", logging: false },
-      jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-      pagebreak: { mode: ["css", "legacy"] },
-    }).from(reportEl).save();
-    hideProgress();
-    toast("PDFを保存しました ✓");
+    // Populate the print container with the report
+    const container = $("printContainer");
+    container.innerHTML = "";
+    container.appendChild(buildRouteReportElement());
+
+    // Wait for web fonts to be ready so Japanese renders properly
+    if (document.fonts && document.fonts.ready) {
+      try { await document.fonts.ready; } catch(e) {}
+    }
+    // Give the browser a moment to lay out
+    await new Promise(r => setTimeout(r, 150));
+
+    // Trigger the browser's print dialog
+    // User will choose "Save as PDF" / "PDFとして保存" from there
+    window.print();
+
+    toast("印刷ダイアログで「PDFとして保存」を選択してください");
   } catch (e) {
-    hideProgress();
-    console.error(e);
-    toast("PDF生成失敗: " + (e.message || e), true);
+    console.error("PDF export error:", e);
+    toast("PDF出力失敗: " + (e.message || e), true);
   } finally {
-    if (reportEl.parentNode) reportEl.parentNode.removeChild(reportEl);
     btn.disabled = false;
   }
 }
