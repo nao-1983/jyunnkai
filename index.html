@@ -1,0 +1,2353 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>フランチャイズ巡回ルート最適化</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&family=Zen+Kaku+Gothic+New:wght@500;700;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f6f4ee;
+    --paper: #fdfcf9;
+    --ink: #14161c;
+    --ink-soft: #5a5e6b;
+    --line: #e3dfd4;
+    --line-strong: #c9c3b3;
+    --accent: #d94824;
+    --accent-deep: #a8341a;
+    --route: #1d4e8a;
+    --success: #2d7a4e;
+    --warn: #c48312;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    font-family: "Noto Sans JP", sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.6;
+    min-height: 100vh;
+    background-image:
+      radial-gradient(circle at 1px 1px, rgba(20,22,28,.04) 1px, transparent 0);
+    background-size: 24px 24px;
+  }
+  .container { max-width: 1280px; margin: 0 auto; padding: 32px 24px 96px; }
+
+  /* Header */
+  header { margin-bottom: 40px; position: relative; }
+  .eyebrow {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .eyebrow::before {
+    content: "";
+    width: 32px; height: 1px; background: var(--accent);
+  }
+  h1 {
+    font-family: "Zen Kaku Gothic New", sans-serif;
+    font-weight: 900;
+    font-size: clamp(28px, 4vw, 44px);
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+    margin-bottom: 8px;
+  }
+  h1 .accent { color: var(--accent); }
+  .subtitle { color: var(--ink-soft); font-size: 14px; max-width: 640px; }
+
+  /* Layout */
+  .grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+    gap: 24px;
+  }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+
+  .panel {
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 24px;
+    box-shadow: 0 1px 0 rgba(0,0,0,0.02);
+  }
+  .panel-title {
+    font-family: "Zen Kaku Gothic New", sans-serif;
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.08em;
+    color: var(--ink-soft);
+    text-transform: uppercase;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 12px;
+  }
+  .panel-num {
+    font-family: "JetBrains Mono", monospace;
+    background: var(--ink);
+    color: var(--paper);
+    width: 22px; height: 22px;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 11px;
+    border-radius: 2px;
+  }
+
+  /* Tabs */
+  .tabs { display: flex; gap: 0; margin-bottom: 20px; border-bottom: 1px solid var(--line); }
+  .tab {
+    background: none; border: none; padding: 10px 16px;
+    font-family: "Noto Sans JP", sans-serif;
+    font-size: 13px; font-weight: 500;
+    color: var(--ink-soft); cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s;
+    margin-bottom: -1px;
+  }
+  .tab:hover { color: var(--ink); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 700; }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  /* File upload */
+  .upload-zone {
+    border: 2px dashed var(--line-strong);
+    border-radius: 4px;
+    padding: 28px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.15s;
+    background: var(--bg);
+  }
+  .upload-zone:hover, .upload-zone.dragging {
+    border-color: var(--accent);
+    background: #fbf4f1;
+  }
+  .upload-icon { font-size: 32px; margin-bottom: 8px; }
+  .upload-text { font-size: 14px; font-weight: 500; }
+  .upload-hint { font-size: 12px; color: var(--ink-soft); margin-top: 4px; }
+  #fileInput { display: none; }
+
+  .col-mapper {
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 14px;
+    margin-top: 12px;
+  }
+  .col-mapper-row {
+    display: grid;
+    grid-template-columns: 100px 1fr;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+  .col-mapper label { font-size: 12px; color: var(--ink-soft); font-weight: 500; }
+  .col-mapper select {
+    padding: 6px 8px;
+    border: 1px solid var(--line-strong);
+    background: var(--paper);
+    font-family: inherit;
+    font-size: 13px;
+    border-radius: 2px;
+  }
+
+  /* Forms */
+  .form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .form-grid.single { grid-template-columns: 1fr; }
+  .field label {
+    display: block;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    margin-bottom: 4px;
+  }
+  .field input, .field textarea, .field select {
+    width: 100%;
+    padding: 9px 12px;
+    border: 1px solid var(--line-strong);
+    background: var(--paper);
+    font-family: inherit;
+    font-size: 14px;
+    border-radius: 2px;
+    transition: border-color 0.15s;
+  }
+  .field input:focus, .field textarea:focus, .field select:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  textarea { resize: vertical; min-height: 60px; }
+
+  /* Buttons */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 11px 18px;
+    border: 1px solid var(--ink);
+    background: var(--ink);
+    color: var(--paper);
+    font-family: "Zen Kaku Gothic New", sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    border-radius: 2px;
+    transition: all 0.15s;
+    letter-spacing: 0.02em;
+  }
+  .btn:hover { background: var(--accent); border-color: var(--accent); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-secondary {
+    background: var(--paper); color: var(--ink); border-color: var(--line-strong);
+  }
+  .btn-secondary:hover { background: var(--bg); border-color: var(--ink); color: var(--ink); }
+  .btn-accent {
+    background: var(--accent); border-color: var(--accent);
+  }
+  .btn-accent:hover { background: var(--accent-deep); border-color: var(--accent-deep); }
+  .btn-block { width: 100%; }
+  .btn-sm { padding: 6px 10px; font-size: 12px; }
+
+  /* Store list */
+  .store-list {
+    margin-top: 20px;
+    max-height: 460px;
+    overflow-y: auto;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: var(--bg);
+  }
+  .store-empty {
+    padding: 32px 20px;
+    text-align: center;
+    color: var(--ink-soft);
+    font-size: 13px;
+  }
+  .store-item {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--line);
+    display: grid;
+    grid-template-columns: 28px 1fr auto;
+    gap: 10px;
+    align-items: start;
+    background: var(--paper);
+    transition: background 0.15s;
+  }
+  .store-item:last-child { border-bottom: none; }
+  .store-item:hover { background: var(--bg); }
+  .store-num {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+    font-weight: 700;
+    background: var(--ink);
+    color: var(--paper);
+    width: 24px; height: 24px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 50%;
+  }
+  .store-item.optimized .store-num { background: var(--accent); }
+  .store-info { min-width: 0; }
+  .store-name {
+    font-weight: 700;
+    font-size: 14px;
+    margin-bottom: 2px;
+    word-break: break-word;
+  }
+  .store-addr {
+    font-size: 12px;
+    color: var(--ink-soft);
+    word-break: break-word;
+  }
+  .store-hours {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+    color: var(--warn);
+    margin-top: 3px;
+  }
+  .store-status {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10px;
+    margin-top: 3px;
+  }
+  .store-status.ok { color: var(--success); }
+  .store-status.err { color: var(--accent); }
+  .store-actions { display: flex; gap: 4px; }
+  .icon-btn {
+    background: none;
+    border: 1px solid var(--line);
+    color: var(--ink-soft);
+    width: 26px; height: 26px;
+    border-radius: 2px;
+    cursor: pointer;
+    font-size: 12px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .icon-btn:hover { background: var(--paper); color: var(--accent); border-color: var(--accent); }
+
+  /* Options */
+  .options-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--line);
+  }
+  .checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+    font-size: 13px;
+    color: var(--ink-soft);
+  }
+  input[type="checkbox"] { accent-color: var(--accent); }
+
+  /* Results */
+  .results-empty {
+    padding: 80px 20px;
+    text-align: center;
+    color: var(--ink-soft);
+  }
+  .results-empty-icon {
+    font-size: 48px; opacity: 0.3; margin-bottom: 12px;
+  }
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .stat {
+    background: var(--bg);
+    border: 1px solid var(--line);
+    padding: 14px;
+    border-radius: 4px;
+  }
+  .stat-label {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    margin-bottom: 4px;
+  }
+  .stat-value {
+    font-family: "Zen Kaku Gothic New", sans-serif;
+    font-weight: 900;
+    font-size: 22px;
+    line-height: 1;
+  }
+  .stat-unit {
+    font-size: 11px;
+    color: var(--ink-soft);
+    font-weight: 400;
+    margin-left: 2px;
+  }
+
+  #map {
+    height: 380px;
+    width: 100%;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    margin-bottom: 16px;
+    background: var(--bg);
+  }
+  .action-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .chunk-links {
+    margin-top: 12px;
+    padding: 12px;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+  }
+  .chunk-links-title {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    margin-bottom: 8px;
+  }
+  .chunk-btn-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 6px;
+  }
+  .chunk-btn {
+    padding: 8px 10px;
+    border: 1px solid var(--line-strong);
+    background: var(--paper);
+    color: var(--ink);
+    font-family: "Noto Sans JP", sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    border-radius: 2px;
+    text-align: left;
+    transition: all 0.15s;
+  }
+  .chunk-btn:hover { background: var(--accent); color: var(--paper); border-color: var(--accent); }
+  .chunk-btn .chunk-range {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10px;
+    color: var(--ink-soft);
+    display: block;
+    margin-top: 2px;
+    font-weight: 400;
+  }
+  .chunk-btn:hover .chunk-range { color: rgba(253,252,249,0.8); }
+
+  /* Progress */
+  .progress-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(20,22,28,0.6);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    backdrop-filter: blur(4px);
+  }
+  .progress-overlay.active { display: flex; }
+  .progress-box {
+    background: var(--paper);
+    padding: 28px 32px;
+    border-radius: 4px;
+    min-width: 280px;
+    text-align: center;
+  }
+  .progress-title {
+    font-family: "Zen Kaku Gothic New", sans-serif;
+    font-weight: 700;
+    margin-bottom: 12px;
+  }
+  .progress-bar {
+    height: 4px;
+    background: var(--line);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-bottom: 8px;
+  }
+  .progress-fill {
+    height: 100%;
+    background: var(--accent);
+    transition: width 0.3s;
+    width: 0%;
+  }
+  .progress-text {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+    color: var(--ink-soft);
+  }
+
+  /* Toast */
+  .toast {
+    position: fixed;
+    bottom: 24px; left: 50%;
+    transform: translateX(-50%) translateY(100px);
+    background: var(--ink);
+    color: var(--paper);
+    padding: 12px 20px;
+    border-radius: 3px;
+    font-size: 13px;
+    transition: transform 0.3s;
+    z-index: 10000;
+    max-width: 90%;
+  }
+  .toast.show { transform: translateX(-50%) translateY(0); }
+  .toast.err { background: var(--accent); }
+
+  /* Filter bar */
+  .filter-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+    margin-bottom: -8px;
+    padding: 8px 12px;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 4px 4px 0 0;
+    border-bottom: none;
+  }
+  .filter-bar label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+  .filter-bar select {
+    flex: 1;
+    padding: 6px 8px;
+    border: 1px solid var(--line-strong);
+    background: var(--paper);
+    font-family: inherit;
+    font-size: 13px;
+    border-radius: 2px;
+    min-width: 0;
+  }
+  .filter-bar select:focus { outline: none; border-color: var(--accent); }
+  .filter-active-badge {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10px;
+    padding: 3px 7px;
+    background: var(--accent);
+    color: var(--paper);
+    border-radius: 2px;
+  }
+  .filter-bar.hidden { display: none; }
+  .filter-bar + .store-list { border-top-left-radius: 0; border-top-right-radius: 0; }
+
+  /* PDF preview */
+  .pdf-preview {
+    margin-top: 14px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: var(--bg);
+    overflow: hidden;
+  }
+  .pdf-preview-header {
+    padding: 10px 12px;
+    background: var(--paper);
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .pdf-preview-count {
+    font-family: "JetBrains Mono", monospace;
+    color: var(--accent);
+  }
+  .pdf-rows { max-height: 260px; overflow-y: auto; }
+  .pdf-row {
+    display: grid;
+    grid-template-columns: 1fr 1.4fr 0.9fr 28px;
+    gap: 6px;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--line);
+    align-items: center;
+  }
+  .pdf-row:last-child { border-bottom: none; }
+  .pdf-row input {
+    padding: 5px 7px;
+    border: 1px solid transparent;
+    background: var(--paper);
+    font-family: inherit;
+    font-size: 12px;
+    border-radius: 2px;
+    width: 100%;
+    min-width: 0;
+  }
+  .pdf-row input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .pdf-row .icon-btn {
+    width: 24px; height: 24px;
+    font-size: 11px;
+  }
+  .pdf-raw {
+    margin-top: 10px;
+    padding: 8px;
+    background: var(--paper);
+    border-top: 1px solid var(--line);
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10px;
+    color: var(--ink-soft);
+    max-height: 100px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  .pdf-raw summary { cursor: pointer; color: var(--ink); font-family: "Noto Sans JP", sans-serif; font-size: 11px; }
+
+  /* Diagnostic / failure bar */
+  .diag-bar {
+    margin-top: 16px;
+    padding: 14px;
+    background: linear-gradient(135deg, #fbf4f1 0%, #f6f4ee 100%);
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+  }
+  .diag-bar.hidden { display: none; }
+  .diag-message {
+    font-size: 12px;
+    color: var(--ink);
+    margin-bottom: 10px;
+    line-height: 1.5;
+  }
+  .diag-message strong {
+    color: var(--accent);
+    font-family: "JetBrains Mono", monospace;
+  }
+
+  /* Map picker modal */
+  .picker-overlay {
+    position: fixed; inset: 0;
+    background: rgba(20,22,28,0.7);
+    display: none;
+    align-items: center; justify-content: center;
+    z-index: 10001;
+    backdrop-filter: blur(4px);
+    padding: 16px;
+  }
+  .picker-overlay.active { display: flex; }
+  .picker-box {
+    background: var(--paper);
+    border-radius: 4px;
+    width: 100%;
+    max-width: 720px;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+  }
+  .picker-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg);
+  }
+  .picker-title {
+    font-family: "Zen Kaku Gothic New", sans-serif;
+    font-weight: 700;
+    font-size: 14px;
+  }
+  .picker-info {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--line);
+    font-size: 12px;
+  }
+  .picker-info .pname { font-weight: 700; font-size: 13px; margin-bottom: 2px; }
+  .picker-info .paddr { color: var(--ink-soft); }
+  .picker-coord-display {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+    color: var(--accent);
+    margin-top: 6px;
+    padding: 6px 10px;
+    background: var(--bg);
+    border-radius: 2px;
+    border: 1px dashed var(--line-strong);
+  }
+  #pickerMap {
+    height: 380px;
+    min-height: 280px;
+  }
+  .picker-search-bar {
+    padding: 8px 16px;
+    border-top: 1px solid var(--line);
+    display: flex;
+    gap: 6px;
+  }
+  .picker-search-bar input {
+    flex: 1;
+    padding: 7px 9px;
+    border: 1px solid var(--line-strong);
+    background: var(--paper);
+    font-family: inherit;
+    font-size: 12px;
+    border-radius: 2px;
+    min-width: 0;
+  }
+  .picker-search-bar input:focus { outline: none; border-color: var(--accent); }
+  .picker-actions {
+    padding: 10px 16px;
+    border-top: 1px solid var(--line);
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    background: var(--bg);
+  }
+  .picker-instructions {
+    font-size: 11px;
+    color: var(--ink-soft);
+    padding: 6px 16px 0;
+  }
+
+  /* Hints */
+  .hint-box {
+    background: #fbf4f1;
+    border-left: 3px solid var(--accent);
+    padding: 10px 14px;
+    font-size: 12px;
+    color: var(--ink);
+    margin-top: 12px;
+    border-radius: 0 2px 2px 0;
+  }
+  .hint-box code {
+    font-family: "JetBrains Mono", monospace;
+    background: rgba(20,22,28,0.06);
+    padding: 1px 4px;
+    border-radius: 2px;
+    font-size: 11px;
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <header>
+    <div class="eyebrow">Franchise Route Optimizer / 巡回計画</div>
+    <h1>フランチャイズ店舗<br><span class="accent">巡回ルート最適化</span></h1>
+    <p class="subtitle">店舗リストをExcelでアップロードまたは直接入力。住所から自動でジオコーディングし、最短距離の巡回順を算出してGoogle Mapsで経路を起動します。</p>
+  </header>
+
+  <div class="grid">
+    <!-- ============ LEFT: INPUT ============ -->
+    <section class="panel">
+      <div class="panel-title">
+        <span class="panel-num">01</span>
+        店舗情報の入力
+      </div>
+
+      <div class="tabs">
+        <button class="tab active" data-tab="excel">Excelから取込</button>
+        <button class="tab" data-tab="manual">手動入力</button>
+        <button class="tab" data-tab="pdf">PDFから取込</button>
+      </div>
+
+      <!-- Excel tab -->
+      <div class="tab-panel active" id="tab-excel">
+        <div class="upload-zone" id="uploadZone">
+          <div class="upload-icon">📑</div>
+          <div class="upload-text">Excelファイル (.xlsx / .xls) を選択</div>
+          <div class="upload-hint">またはドラッグ＆ドロップ</div>
+        </div>
+        <input type="file" id="fileInput" accept=".xlsx,.xls">
+        <div id="colMapper" class="col-mapper" style="display:none;">
+          <div style="font-size:12px;font-weight:700;margin-bottom:10px;">列の対応を確認してください</div>
+          <div class="col-mapper-row">
+            <label>店舗名 <span style="color:var(--accent)">*</span></label>
+            <select id="mapName"></select>
+          </div>
+          <div class="col-mapper-row">
+            <label>住所 <span style="color:var(--accent)">*</span></label>
+            <select id="mapAddr"></select>
+          </div>
+          <div class="col-mapper-row">
+            <label>営業時間</label>
+            <select id="mapHours"></select>
+          </div>
+          <div class="col-mapper-row">
+            <label>備考</label>
+            <select id="mapNote"></select>
+          </div>
+          <div class="col-mapper-row">
+            <label>緯度</label>
+            <select id="mapLat"></select>
+          </div>
+          <div class="col-mapper-row">
+            <label>経度</label>
+            <select id="mapLng"></select>
+          </div>
+          <div style="font-size:11px;color:var(--ink-soft);margin-top:6px;padding:6px 8px;background:var(--bg);border-radius:2px;">
+            💡 緯度・経度の列を指定するとジオコーディング不要で即時最適化できます
+          </div>
+          <button class="btn btn-sm btn-block" id="btnImport" style="margin-top:8px;">この設定で取り込む</button>
+        </div>
+        <div class="hint-box">
+          <strong>ヒント：</strong> 1行目を見出し（<code>店舗名 / 住所 / 営業時間 / 備考 / 緯度 / 経度</code>等）にしておくと自動認識されます。
+        </div>
+      </div>
+
+      <!-- Manual tab -->
+      <div class="tab-panel" id="tab-manual">
+        <div class="form-grid single">
+          <div class="field">
+            <label>店舗名 *</label>
+            <input type="text" id="inName" placeholder="例：○○店 渋谷スクランブル店">
+          </div>
+        </div>
+        <div class="form-grid single">
+          <div class="field">
+            <label>住所 *</label>
+            <input type="text" id="inAddr" placeholder="例：東京都渋谷区道玄坂2-1-1">
+          </div>
+        </div>
+        <div class="form-grid">
+          <div class="field">
+            <label>営業時間</label>
+            <input type="text" id="inHours" placeholder="10:00-22:00">
+          </div>
+          <div class="field">
+            <label>備考</label>
+            <input type="text" id="inNote" placeholder="駐車場あり 等">
+          </div>
+        </div>
+        <button class="btn btn-block" id="btnAdd">＋ リストに追加</button>
+      </div>
+
+      <!-- PDF tab -->
+      <div class="tab-panel" id="tab-pdf">
+        <div class="upload-zone" id="pdfUploadZone">
+          <div class="upload-icon">📄</div>
+          <div class="upload-text">PDFファイルを選択</div>
+          <div class="upload-hint">またはドラッグ＆ドロップ</div>
+        </div>
+        <input type="file" id="pdfFileInput" accept=".pdf" style="display:none;">
+        <div id="pdfPreviewBox" style="display:none;">
+          <div class="pdf-preview">
+            <div class="pdf-preview-header">
+              <div>抽出結果 <span class="pdf-preview-count" id="pdfCount">0件</span></div>
+              <button class="btn btn-sm btn-secondary" id="btnReparse" type="button">再解析</button>
+            </div>
+            <div class="pdf-row" style="background:var(--paper);font-weight:700;font-size:11px;color:var(--ink-soft);">
+              <div>店舗名</div><div>住所</div><div>営業時間</div><div></div>
+            </div>
+            <div class="pdf-rows" id="pdfRows"></div>
+            <details class="pdf-raw" id="pdfRawWrap">
+              <summary>抽出した生テキストを表示</summary>
+              <div id="pdfRawText"></div>
+            </details>
+          </div>
+          <button class="btn btn-block" id="btnImportPdf" style="margin-top:8px;">これらをリストに追加</button>
+        </div>
+        <div class="hint-box">
+          住所行（都道府県を含む行）を自動検出し、近接する行から店舗名・営業時間を推定します。<strong>抽出結果は編集可能</strong>です。スキャンPDF（画像）の場合は文字認識ができないため、手動入力をご利用ください。
+        </div>
+      </div>
+
+      <!-- Store list -->
+      <div style="margin-top:24px;display:flex;justify-content:space-between;align-items:center;">
+        <div class="panel-title" style="border:none;padding:0;margin:0;">
+          <span class="panel-num">02</span>
+          店舗リスト <span id="storeCount" style="margin-left:8px;font-family:'JetBrains Mono',monospace;color:var(--ink);">(0)</span>
+        </div>
+        <button class="btn btn-sm btn-secondary" id="btnClear">クリア</button>
+      </div>
+      <div class="filter-bar hidden" id="filterBar">
+        <label>絞り込み</label>
+        <select id="prefFilter">
+          <option value="">すべての都道府県</option>
+        </select>
+        <span class="filter-active-badge" id="filterActiveBadge" style="display:none;">適用中</span>
+      </div>
+      <div class="store-list" id="storeList">
+        <div class="store-empty">店舗が追加されていません</div>
+      </div>
+
+      <!-- Options -->
+      <div class="options-row">
+        <div class="field">
+          <label>出発地点</label>
+          <select id="startMode">
+            <option value="first">リストの1番目</option>
+            <option value="custom">指定住所</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>巡回後</label>
+          <select id="returnMode">
+            <option value="no">出発地点に戻らない</option>
+            <option value="yes">出発地点に戻る</option>
+          </select>
+        </div>
+      </div>
+      <div class="field" id="customStartField" style="margin-top:12px;display:none;">
+        <label>出発地点の住所</label>
+        <input type="text" id="customStartAddr" placeholder="例：本社住所">
+      </div>
+
+      <button class="btn btn-accent btn-block" id="btnOptimize" style="margin-top:20px;">
+        🧭 ルートを最適化する
+      </button>
+
+      <div class="diag-bar hidden" id="diagBar">
+        <div class="diag-message">
+          <strong id="failedCount">0</strong> 件の住所が自動取得できませんでした。<br>
+          ⚠ の店舗カードにある <strong>📍 ボタン</strong> で地図上に直接ピンを立てて指定してください。
+        </div>
+        <button class="btn btn-secondary btn-block" id="btnDiag" style="font-size:12px;">
+          🔧 接続診断（うまく動かない場合）
+        </button>
+      </div>
+    </section>
+
+    <!-- ============ RIGHT: RESULT ============ -->
+    <section class="panel">
+      <div class="panel-title">
+        <span class="panel-num">03</span>
+        最適化結果
+      </div>
+
+      <div id="resultsEmpty" class="results-empty">
+        <div class="results-empty-icon">🗺️</div>
+        <div>店舗を追加して「ルートを最適化する」を押してください</div>
+      </div>
+
+      <div id="resultsContent" style="display:none;">
+        <div class="stats">
+          <div class="stat">
+            <div class="stat-label">訪問店舗</div>
+            <div class="stat-value"><span id="statStops">0</span><span class="stat-unit">店</span></div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">総距離</div>
+            <div class="stat-value"><span id="statDist">0</span><span class="stat-unit">km</span></div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">推定時間</div>
+            <div class="stat-value"><span id="statTime">0</span><span class="stat-unit">分</span></div>
+          </div>
+        </div>
+
+        <div id="map"></div>
+
+        <div class="action-row">
+          <button class="btn btn-accent" id="btnOpenGoogle">📍 Google Mapsで開く</button>
+          <button class="btn btn-secondary" id="btnExport">📥 CSVダウンロード</button>
+        </div>
+        <div id="chunkLinks" style="display:none;"></div>
+        <div class="hint-box" style="margin-top:12px;" id="resultHint">
+          Google Mapsボタンを押すと、最適化された順路がそのままナビゲーションに渡され、スマホでも経路案内が起動します。
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<!-- Progress overlay -->
+<div class="progress-overlay" id="progressOverlay">
+  <div class="progress-box">
+    <div class="progress-title">処理中...</div>
+    <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+    <div class="progress-text" id="progressText">準備中</div>
+  </div>
+</div>
+
+<!-- Diagnostics modal -->
+<div class="picker-overlay" id="diagOverlay">
+  <div class="picker-box" style="max-width:560px;">
+    <div class="picker-header">
+      <div class="picker-title">🔧 接続診断</div>
+      <button class="icon-btn" id="diagClose">✕</button>
+    </div>
+    <div style="padding:16px;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.8;max-height:60vh;overflow-y:auto;" id="diagResults">
+      診断中...
+    </div>
+    <div class="picker-actions">
+      <button class="btn btn-accent" id="diagCopy">📋 結果をコピー</button>
+      <button class="btn btn-secondary" id="diagRerun">再実行</button>
+      <button class="btn btn-secondary" id="diagCloseBtn">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- Map picker modal -->
+<div class="picker-overlay" id="pickerOverlay">
+  <div class="picker-box">
+    <div class="picker-header">
+      <div class="picker-title">📍 地図上で位置を指定</div>
+      <button class="icon-btn" id="pickerClose">✕</button>
+    </div>
+    <div class="picker-info">
+      <div class="pname" id="pickerName"></div>
+      <div class="paddr" id="pickerAddr"></div>
+      <div class="picker-coord-display" id="pickerCoordDisplay">地図をクリックしてピンを立ててください</div>
+    </div>
+    <div class="picker-instructions">💡 該当の場所をクリック → 「この位置で確定」。スクロールで拡大、ドラッグで移動できます。</div>
+    <div id="pickerMap"></div>
+    <div class="picker-search-bar">
+      <input type="text" id="pickerSearchInput" placeholder="地名や座標で検索（例: 東京駅, 35.68,139.76）">
+      <button class="btn btn-sm btn-secondary" id="pickerSearchBtn">検索</button>
+    </div>
+    <div class="picker-actions">
+      <button class="btn btn-secondary" id="pickerCancel">キャンセル</button>
+      <button class="btn btn-accent" id="pickerSave" disabled>この位置で確定</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+/* ============================================================
+   STATE
+   ============================================================ */
+const state = {
+  stores: [],       // {id, name, address, hours, note, prefecture, lat, lng, geocoded}
+  optimizedOrder: null,
+  totalDistance: 0,
+  workbookData: null,
+  startCoord: null,
+  filter: "",       // selected prefecture filter ("" = no filter)
+};
+
+let map = null;
+let mapLayers = [];
+
+/* ============================================================
+   PREFECTURE DETECTION & FILTER
+   ============================================================ */
+const PREFECTURES = [
+  "北海道","青森県","岩手県","宮城県","秋田県","山形県","福島県",
+  "茨城県","栃木県","群馬県","埼玉県","千葉県","東京都","神奈川県",
+  "新潟県","富山県","石川県","福井県","山梨県","長野県","岐阜県","静岡県","愛知県",
+  "三重県","滋賀県","京都府","大阪府","兵庫県","奈良県","和歌山県",
+  "鳥取県","島根県","岡山県","広島県","山口県",
+  "徳島県","香川県","愛媛県","高知県",
+  "福岡県","佐賀県","長崎県","熊本県","大分県","宮崎県","鹿児島県","沖縄県"
+];
+
+function detectPrefecture(address) {
+  if (!address) return null;
+  for (const p of PREFECTURES) {
+    if (address.includes(p)) return p;
+  }
+  return null;
+}
+
+// Indices into state.stores that match current filter
+function getActiveIndices() {
+  if (!state.filter) return state.stores.map((_, i) => i);
+  return state.stores
+    .map((s, i) => ({s, i}))
+    .filter(({s}) => s.prefecture === state.filter)
+    .map(({i}) => i);
+}
+
+function updatePrefectureFilter() {
+  const counts = new Map();
+  for (const s of state.stores) {
+    if (s.prefecture) counts.set(s.prefecture, (counts.get(s.prefecture) || 0) + 1);
+  }
+  const present = PREFECTURES.filter(p => counts.has(p));
+  const sel = $("prefFilter");
+  const bar = $("filterBar");
+
+  // Hide filter bar if 1 or fewer prefectures
+  if (present.length <= 1) {
+    bar.classList.add("hidden");
+    if (state.filter) { state.filter = ""; sel.value = ""; }
+    $("filterActiveBadge").style.display = "none";
+    return;
+  }
+  bar.classList.remove("hidden");
+
+  // Preserve current selection if still valid
+  const currentValid = state.filter && present.includes(state.filter);
+  sel.innerHTML =
+    `<option value="">すべての都道府県 (${state.stores.length})</option>` +
+    present.map(p => `<option value="${p}">${p} (${counts.get(p)})</option>`).join("");
+  sel.value = currentValid ? state.filter : "";
+  if (!currentValid && state.filter) state.filter = "";
+  $("filterActiveBadge").style.display = state.filter ? "inline-block" : "none";
+}
+
+/* ============================================================
+   UI HELPERS
+   ============================================================ */
+const $ = (id) => document.getElementById(id);
+
+function toast(msg, isErr=false) {
+  const el = $("toast");
+  el.textContent = msg;
+  el.className = "toast show" + (isErr ? " err" : "");
+  setTimeout(() => el.className = "toast" + (isErr ? " err" : ""), 3000);
+}
+
+function showProgress(text, pct) {
+  $("progressOverlay").classList.add("active");
+  $("progressText").textContent = text;
+  $("progressFill").style.width = pct + "%";
+}
+function hideProgress() { $("progressOverlay").classList.remove("active"); }
+
+/* Tabs */
+document.querySelectorAll(".tab").forEach(t => {
+  t.addEventListener("click", () => {
+    document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
+    document.querySelectorAll(".tab-panel").forEach(x => x.classList.remove("active"));
+    t.classList.add("active");
+    $("tab-" + t.dataset.tab).classList.add("active");
+  });
+});
+
+/* Start mode toggle */
+$("startMode").addEventListener("change", (e) => {
+  $("customStartField").style.display = e.target.value === "custom" ? "block" : "none";
+});
+
+/* ============================================================
+   STORE LIST RENDER
+   ============================================================ */
+function renderStoreList() {
+  const list = $("storeList");
+  const total = state.stores.length;
+  const activeIdx = getActiveIndices();
+  const filteredCount = activeIdx.length;
+  $("storeCount").textContent = state.filter
+    ? `(${filteredCount}/${total})`
+    : `(${total})`;
+  if (total === 0) {
+    list.innerHTML = `<div class="store-empty">店舗が追加されていません</div>`;
+    return;
+  }
+  if (filteredCount === 0) {
+    list.innerHTML = `<div class="store-empty">「${state.filter}」に該当する店舗がありません</div>`;
+    return;
+  }
+  // Order: optimized order if present (and all in active set), else activeIdx order
+  let displayOrder;
+  if (state.optimizedOrder && state.optimizedOrder.every(i => activeIdx.includes(i))) {
+    displayOrder = state.optimizedOrder;
+  } else {
+    displayOrder = activeIdx;
+  }
+  const isOptimized = !!state.optimizedOrder && displayOrder === state.optimizedOrder;
+
+  list.innerHTML = displayOrder.map((idx, displayIdx) => {
+    const s = state.stores[idx];
+    let status = "";
+    if (s.geocoded === true) status = `<div class="store-status ok">✓ 位置情報取得済</div>`;
+    else if (s.geocoded === false) {
+      const searchUrl = `https://www.google.com/maps/search/${encodeURIComponent(s.address)}`;
+      status = `<div class="store-status err">⚠ 住所が特定できません <a href="${searchUrl}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;margin-left:6px;">🔍 GMaps検索</a></div>`;
+    }
+    const pickerBtn = (s.geocoded === false)
+      ? `<button class="icon-btn" onclick="openPicker(${idx})" title="地図でピン指定" style="border-color:var(--accent);color:var(--accent);">📍</button>`
+      : "";
+    const prefBadge = s.prefecture
+      ? `<span style="display:inline-block;font-size:10px;background:var(--bg);border:1px solid var(--line);padding:1px 5px;border-radius:2px;color:var(--ink-soft);margin-right:4px;vertical-align:middle;">${escapeHTML(s.prefecture)}</span>`
+      : "";
+    return `
+      <div class="store-item ${isOptimized ? "optimized" : ""}">
+        <div class="store-num">${displayIdx + 1}</div>
+        <div class="store-info">
+          <div class="store-name">${prefBadge}${escapeHTML(s.name)}</div>
+          <div class="store-addr">${escapeHTML(s.address)}</div>
+          ${s.hours ? `<div class="store-hours">⏱ ${escapeHTML(s.hours)}</div>` : ""}
+          ${s.note ? `<div class="store-addr" style="margin-top:2px;">${escapeHTML(s.note)}</div>` : ""}
+          ${status}
+        </div>
+        <div class="store-actions">
+          ${pickerBtn}
+          <button class="icon-btn" onclick="editStore(${idx})" title="編集">✎</button>
+          <button class="icon-btn" onclick="removeStore(${idx})" title="削除">✕</button>
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+function escapeHTML(s) {
+  if (s == null) return "";
+  return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"})[c]);
+}
+
+window.removeStore = function(idx) {
+  state.stores.splice(idx, 1);
+  state.optimizedOrder = null;
+  updatePrefectureFilter();
+  renderStoreList();
+  updateDiagBar();
+  resetResults();
+};
+
+// Parse various coordinate input formats
+function parseCoords(input) {
+  if (!input) return null;
+  // Direct "lat, lng"
+  const m1 = input.match(/^\s*(-?\d+(?:\.\d+)?)\s*[,、\s]\s*(-?\d+(?:\.\d+)?)\s*$/);
+  if (m1) {
+    const lat = parseFloat(m1[1]), lng = parseFloat(m1[2]);
+    if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) return { lat, lng };
+  }
+  // Google Maps URL: "@lat,lng,zoom"
+  const m2 = input.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if (m2) return { lat: parseFloat(m2[1]), lng: parseFloat(m2[2]) };
+  // URL with q=lat,lng or ll=lat,lng
+  const m3 = input.match(/[?&](?:q|ll|query)=(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if (m3) return { lat: parseFloat(m3[1]), lng: parseFloat(m3[2]) };
+  // URL with !3dLAT!4dLNG (Google Maps share URL)
+  const m4 = input.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
+  if (m4) return { lat: parseFloat(m4[1]), lng: parseFloat(m4[2]) };
+  return null;
+}
+
+window.editStore = function(idx) {
+  const s = state.stores[idx];
+  if (!s) return;
+  const msg = `住所を修正、または 緯度,経度 を入力してください
+
+【受け付ける形式】
+・住所:  東京都渋谷区道玄坂2-1-1
+・座標:  35.6589, 139.6982
+・GMap URL: https://www.google.com/maps/@35.6589,139.6982,17z
+   （Google Mapsで場所を検索 → アドレスバーのURLをコピペ）
+
+店舗: ${s.name}
+現在: ${s.address}`;
+  const input = window.prompt(msg, s.address);
+  if (input == null) return;
+  const trimmed = input.trim();
+  if (!trimmed) return;
+
+  // Try parsing as coordinates first
+  const coords = parseCoords(trimmed);
+  if (coords) {
+    s.lat = coords.lat;
+    s.lng = coords.lng;
+    s.geocoded = true;
+    state.optimizedOrder = null;
+    renderStoreList();
+    resetResults();
+    toast(`座標を直接設定しました ✓ (${coords.lat.toFixed(4)}, ${coords.lng.toFixed(4)})`);
+    return;
+  }
+
+  if (trimmed !== s.address) {
+    s.address = trimmed;
+    s.prefecture = detectPrefecture(trimmed);
+    // Clear cached geocode so it'll re-try on next optimize
+    delete s.lat; delete s.lng; delete s.geocoded;
+    state.optimizedOrder = null;
+    updatePrefectureFilter();
+    renderStoreList();
+    resetResults();
+    toast("住所を更新しました。「ルートを最適化する」で再取得します");
+  }
+};
+
+$("btnClear").addEventListener("click", () => {
+  if (state.stores.length === 0) return;
+  if (!confirm("店舗リストをすべて削除しますか？")) return;
+  state.stores = [];
+  state.optimizedOrder = null;
+  state.filter = "";
+  updatePrefectureFilter();
+  renderStoreList();
+  updateDiagBar();
+  resetResults();
+});
+
+// Filter dropdown handler
+$("prefFilter").addEventListener("change", (e) => {
+  state.filter = e.target.value;
+  state.optimizedOrder = null;
+  $("filterActiveBadge").style.display = state.filter ? "inline-block" : "none";
+  renderStoreList();
+  resetResults();
+});
+
+/* ============================================================
+   MANUAL INPUT
+   ============================================================ */
+$("btnAdd").addEventListener("click", () => {
+  const name = $("inName").value.trim();
+  const address = $("inAddr").value.trim();
+  if (!name || !address) {
+    toast("店舗名と住所は必須です", true);
+    return;
+  }
+  state.stores.push({
+    id: Date.now() + Math.random(),
+    name, address,
+    hours: $("inHours").value.trim(),
+    note: $("inNote").value.trim(),
+    prefecture: detectPrefecture(address),
+  });
+  ["inName","inAddr","inHours","inNote"].forEach(id => $(id).value = "");
+  state.optimizedOrder = null;
+  updatePrefectureFilter();
+  renderStoreList();
+  resetResults();
+  toast(`「${name}」を追加しました`);
+});
+
+/* ============================================================
+   EXCEL IMPORT
+   ============================================================ */
+const uploadZone = $("uploadZone");
+const fileInput = $("fileInput");
+uploadZone.addEventListener("click", () => fileInput.click());
+uploadZone.addEventListener("dragover", e => { e.preventDefault(); uploadZone.classList.add("dragging"); });
+uploadZone.addEventListener("dragleave", () => uploadZone.classList.remove("dragging"));
+uploadZone.addEventListener("drop", e => {
+  e.preventDefault();
+  uploadZone.classList.remove("dragging");
+  if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener("change", e => {
+  if (e.target.files[0]) handleFile(e.target.files[0]);
+});
+
+function handleFile(file) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const data = new Uint8Array(e.target.result);
+      const wb = XLSX.read(data, { type: "array" });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+      if (rows.length < 2) { toast("ファイルにデータが見つかりません", true); return; }
+      state.workbookData = rows;
+      showColumnMapper(rows[0]);
+    } catch(err) {
+      toast("Excelの読み込みに失敗しました", true);
+      console.error(err);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function showColumnMapper(headers) {
+  const selects = ["mapName","mapAddr","mapHours","mapNote","mapLat","mapLng"];
+  const auto = {
+    mapName: /店舗|店名|名前|name|shop|store/i,
+    mapAddr: /住所|所在地|address|addr/i,
+    mapHours: /営業|時間|hours|open/i,
+    mapNote: /備考|メモ|note|remark/i,
+    mapLat: /緯度|lat\b|latitude/i,
+    mapLng: /経度|lng|lon|longitude/i,
+  };
+  selects.forEach(sid => {
+    const sel = $(sid);
+    sel.innerHTML = `<option value="-1">（指定なし）</option>` +
+      headers.map((h, i) => `<option value="${i}">${escapeHTML(h || `列${i+1}`)}</option>`).join("");
+    const matchIdx = headers.findIndex(h => auto[sid].test(String(h || "")));
+    if (matchIdx >= 0) sel.value = matchIdx;
+    else sel.value = "-1";
+  });
+  $("colMapper").style.display = "block";
+}
+
+$("btnImport").addEventListener("click", () => {
+  const ni = parseInt($("mapName").value);
+  const ai = parseInt($("mapAddr").value);
+  if (ni < 0 || ai < 0) { toast("店舗名と住所の列を指定してください", true); return; }
+  const hi = parseInt($("mapHours").value);
+  const noi = parseInt($("mapNote").value);
+  const lati = parseInt($("mapLat").value);
+  const lngi = parseInt($("mapLng").value);
+  const rows = state.workbookData.slice(1);
+  let added = 0, withCoords = 0;
+  for (const r of rows) {
+    const name = String(r[ni] || "").trim();
+    const address = String(r[ai] || "").trim();
+    if (!name || !address) continue;
+    const store = {
+      id: Date.now() + Math.random() + added,
+      name, address,
+      hours: hi >= 0 ? String(r[hi] || "").trim() : "",
+      note: noi >= 0 ? String(r[noi] || "").trim() : "",
+      prefecture: detectPrefecture(address),
+    };
+    // If lat/lng columns provided and parseable, use directly (skip geocoding)
+    if (lati >= 0 && lngi >= 0) {
+      const lat = parseFloat(String(r[lati]).replace(/[^\d.-]/g, ""));
+      const lng = parseFloat(String(r[lngi]).replace(/[^\d.-]/g, ""));
+      if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+        store.lat = lat;
+        store.lng = lng;
+        store.geocoded = true;
+        withCoords++;
+      }
+    }
+    state.stores.push(store);
+    added++;
+  }
+  state.optimizedOrder = null;
+  updatePrefectureFilter();
+  renderStoreList();
+  updateDiagBar();
+  resetResults();
+  $("colMapper").style.display = "none";
+  fileInput.value = "";
+  toast(`${added}店舗を取り込みました${withCoords > 0 ? `（うち${withCoords}件は座標付き）` : ""}`);
+});
+
+/* ============================================================
+   GEOCODING - GSI → Photon → Nominatim, with aggressive fallbacks
+   ============================================================ */
+// Clean & normalize a Japanese address for better geocoding
+function normalizeAddress(addr) {
+  return addr
+    .replace(/[\uFF10-\uFF19]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)) // full-width digits → half
+    .replace(/[\uFF21-\uFF3A\uFF41-\uFF5A]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)) // full-width latin
+    .replace(/[ーー－‐‑‒–—―−]/g, "-")              // unify all dash variants
+    .replace(/[、，]/g, " ")                        // commas → space
+    .replace(/[（）()【】［\]]/g, " ")              // strip bracket chars (keep contents)
+    .replace(/〒\s*\d{3}-?\d{4}\s*/g, "")          // strip postal codes
+    .replace(/[\u3000\s]+/g, " ")                  // unify whitespace
+    .trim();
+}
+
+// Generate progressively simpler address candidates to try
+function addressCandidates(addr) {
+  const norm = normalizeAddress(addr);
+  const list = new Set([norm]);
+
+  // 1. Strip after first whitespace (drops building names / floor info)
+  const sp = norm.indexOf(" ");
+  const core = sp > 0 ? norm.substring(0, sp) : norm;
+  list.add(core);
+
+  // 2. Convert "1丁目2番3号" etc. to "1-2-3"
+  const hyphenated = core
+    .replace(/(\d+)丁目(\d+)番(\d+)号?/g, "$1-$2-$3")
+    .replace(/(\d+)丁目(\d+)番地?/g, "$1-$2")
+    .replace(/(\d+)丁目/g, "$1");
+  list.add(hyphenated);
+
+  // 3. Drop the last segment after the last hyphen (broader match)
+  for (const base of [core, hyphenated]) {
+    const lastDash = base.lastIndexOf("-");
+    if (lastDash > 0) list.add(base.substring(0, lastDash));
+  }
+
+  // 4. Up to chome only: keep everything up to and including the first "N丁目" or "N-"
+  const chomeMatch = hyphenated.match(/^(.+?\d+)(?:[-丁].*)?$/);
+  if (chomeMatch) list.add(chomeMatch[1]);
+
+  // 5. Prefecture + city only (very broad)
+  const pref = PREFECTURES.find(p => norm.includes(p));
+  if (pref) {
+    const afterPref = norm.substring(norm.indexOf(pref) + pref.length);
+    const cityMatch = afterPref.match(/^([^\s]*?[市区町村郡])/);
+    if (cityMatch) list.add(pref + cityMatch[1]);
+  }
+
+  return [...list].filter(s => s && s.length >= 4);
+}
+
+async function geocodeGSI(address) {
+  const direct = `https://msearch.gsi.go.jp/address-search/AddressSearch?q=${encodeURIComponent(address)}`;
+  // Try direct + several CORS proxies in sequence
+  const urls = [
+    direct,
+    `https://corsproxy.io/?url=${encodeURIComponent(direct)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(direct)}`,
+    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(direct)}`,
+  ];
+  for (const url of urls) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) continue;
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) {
+        const c = data[0].geometry.coordinates;
+        return { lat: c[1], lng: c[0] };
+      }
+    } catch(e) { /* try next */ }
+  }
+  return null;
+}
+
+async function geocodePhoton(address) {
+  // Photon (Komoot) - OSM-based, free, CORS-enabled, no rate limit
+  const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(address)}&lang=ja&limit=1`;
+  const res = await fetch(url);
+  if (!res.ok) return null;
+  const data = await res.json();
+  if (!data.features || data.features.length === 0) return null;
+  // Filter to Japan to avoid wild international matches
+  const f = data.features.find(ft => (ft.properties.country === "Japan" || ft.properties.countrycode === "JP")) || data.features[0];
+  const c = f.geometry.coordinates;
+  return { lat: c[1], lng: c[0] };
+}
+
+async function geocodeNominatim(address) {
+  const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=jp&q=${encodeURIComponent(address)}`;
+  const res = await fetch(url, { headers: { "Accept-Language": "ja" } });
+  if (!res.ok) return null;
+  const data = await res.json();
+  if (!Array.isArray(data) || data.length === 0) return null;
+  return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+}
+
+// Try GSI for all candidates, then Photon, then Nominatim
+async function geocode(address) {
+  const candidates = addressCandidates(address);
+  const tries = [];
+
+  for (const a of candidates) {
+    try {
+      const r = await geocodeGSI(a);
+      tries.push({ service: "GSI", query: a, ok: !!r });
+      if (r) { console.log("[geocode] GSI matched:", a, r); return r; }
+    } catch(e) { tries.push({ service: "GSI", query: a, error: e.message }); }
+  }
+  for (const a of candidates) {
+    try {
+      const r = await geocodePhoton(a);
+      tries.push({ service: "Photon", query: a, ok: !!r });
+      if (r) { console.log("[geocode] Photon matched:", a, r); return r; }
+    } catch(e) { tries.push({ service: "Photon", query: a, error: e.message }); }
+  }
+  for (const a of candidates) {
+    try {
+      const r = await geocodeNominatim(a);
+      tries.push({ service: "Nominatim", query: a, ok: !!r });
+      if (r) { console.log("[geocode] Nominatim matched:", a, r); return r; }
+    } catch(e) { tries.push({ service: "Nominatim", query: a, error: e.message }); }
+    await new Promise(r => setTimeout(r, 1100));
+  }
+  console.warn("[geocode] All attempts failed for:", address, tries);
+  return null;
+}
+
+async function geocodeAll() {
+  const activeIdx = new Set(getActiveIndices());
+  const activeStores = state.stores.filter((_, i) => activeIdx.has(i));
+  let need = activeStores.filter(s => !s.lat).length;
+  if ($("startMode").value === "custom") {
+    const addr = $("customStartAddr").value.trim();
+    if (addr && !state.startCoord) need++;
+  }
+  if (need === 0) return true;
+  let done = 0;
+  showProgress("住所をジオコーディング中...", 5);
+
+  for (let i = 0; i < state.stores.length; i++) {
+    if (!activeIdx.has(i)) continue;
+    const s = state.stores[i];
+    if (s.lat) continue;
+    showProgress(`位置情報を取得: ${s.name}`, (done/need)*90);
+    const r = await geocode(s.address);
+    if (r) { s.lat = r.lat; s.lng = r.lng; s.geocoded = true; }
+    else { s.geocoded = false; }
+    done++;
+    // Small delay for politeness to GSI
+    await new Promise(r => setTimeout(r, 150));
+  }
+
+  // Custom start
+  if ($("startMode").value === "custom") {
+    const addr = $("customStartAddr").value.trim();
+    if (addr) {
+      showProgress(`出発地点をジオコーディング: ${addr}`, 95);
+      const r = await geocode(addr);
+      if (r) state.startCoord = { ...r, name: "出発地点", address: addr };
+      else { hideProgress(); toast("出発地点の住所が特定できませんでした", true); return false; }
+    }
+  }
+
+  hideProgress();
+  renderStoreList();
+
+  const failed = activeStores.filter(s => s.geocoded === false);
+  updateDiagBar();
+  if (failed.length > 0) {
+    toast(`${failed.length}件失敗。⚠の店舗の 📍 ボタンで地図上にピンを立てて指定してください`, true);
+    return activeStores.filter(s => s.lat).length >= 2;
+  }
+  return true;
+}
+
+/* ============================================================
+   ROUTE OPTIMIZATION (Nearest Neighbor + 2-opt)
+   ============================================================ */
+function haversine(a, b) {
+  const R = 6371;
+  const dLat = (b.lat - a.lat) * Math.PI / 180;
+  const dLng = (b.lng - a.lng) * Math.PI / 180;
+  const la1 = a.lat * Math.PI / 180, la2 = b.lat * Math.PI / 180;
+  const x = Math.sin(dLat/2)**2 + Math.cos(la1)*Math.cos(la2)*Math.sin(dLng/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(x));
+}
+
+function nearestNeighbor(points, startIdx) {
+  const n = points.length;
+  const visited = new Array(n).fill(false);
+  const route = [startIdx];
+  visited[startIdx] = true;
+  for (let i = 0; i < n - 1; i++) {
+    const cur = points[route[route.length - 1]];
+    let best = -1, bestD = Infinity;
+    for (let j = 0; j < n; j++) {
+      if (visited[j]) continue;
+      const d = haversine(cur, points[j]);
+      if (d < bestD) { bestD = d; best = j; }
+    }
+    route.push(best);
+    visited[best] = true;
+  }
+  return route;
+}
+
+function routeDistance(points, route, returnToStart) {
+  let d = 0;
+  for (let i = 0; i < route.length - 1; i++) {
+    d += haversine(points[route[i]], points[route[i+1]]);
+  }
+  if (returnToStart) d += haversine(points[route[route.length-1]], points[route[0]]);
+  return d;
+}
+
+function twoOpt(points, route, returnToStart) {
+  let best = [...route];
+  let bestD = routeDistance(points, best, returnToStart);
+  let improved = true;
+  let iter = 0;
+  while (improved && iter < 100) {
+    improved = false;
+    iter++;
+    for (let i = 1; i < best.length - 1; i++) {
+      for (let j = i + 1; j < best.length; j++) {
+        const newRoute = [
+          ...best.slice(0, i),
+          ...best.slice(i, j+1).reverse(),
+          ...best.slice(j+1)
+        ];
+        const d = routeDistance(points, newRoute, returnToStart);
+        if (d < bestD - 0.001) {
+          best = newRoute; bestD = d; improved = true;
+        }
+      }
+    }
+  }
+  return { route: best, distance: bestD };
+}
+
+/* ============================================================
+   OPTIMIZE BUTTON
+   ============================================================ */
+$("btnOptimize").addEventListener("click", async () => {
+  const activeIdx = getActiveIndices();
+  if (activeIdx.length < 2) {
+    toast(state.filter
+      ? `「${state.filter}」内に2店舗以上必要です`
+      : "2店舗以上を追加してください", true);
+    return;
+  }
+  $("btnOptimize").disabled = true;
+
+  const ok = await geocodeAll();
+  hideProgress();
+  if (!ok) { $("btnOptimize").disabled = false; return; }
+
+  showProgress("最短ルートを計算中...", 50);
+  await new Promise(r => setTimeout(r, 200));
+
+  // Build points from ACTIVE stores only - if custom start, prepend it
+  const activeStores = activeIdx.map(i => state.stores[i]).filter(s => s.lat);
+  let points = activeStores.map(s => ({lat:s.lat, lng:s.lng, ref:s}));
+  if ($("startMode").value === "custom" && state.startCoord) {
+    points = [{lat: state.startCoord.lat, lng: state.startCoord.lng, ref: state.startCoord, isStart: true}, ...points];
+  }
+  const returnToStart = $("returnMode").value === "yes";
+
+  // Nearest neighbor from index 0
+  const nn = nearestNeighbor(points, 0);
+  // 2-opt
+  const { route, distance } = twoOpt(points, nn, returnToStart);
+
+  // Map back to store indices (excluding the synthetic start if any)
+  state.optimizedOrder = route
+    .filter(i => !points[i].isStart)
+    .map(i => state.stores.indexOf(points[i].ref));
+  state.totalDistance = distance;
+  state.optimizedPoints = route.map(i => points[i]);
+  state.returnToStart = returnToStart;
+
+  hideProgress();
+  renderStoreList();
+  renderResults();
+  $("btnOptimize").disabled = false;
+  toast(state.filter
+    ? `${state.filter}（${activeStores.length}店舗）の最適化が完了しました`
+    : "最適化が完了しました");
+});
+
+/* ============================================================
+   RESULTS RENDER
+   ============================================================ */
+function resetResults() {
+  $("resultsEmpty").style.display = "block";
+  $("resultsContent").style.display = "none";
+}
+
+function renderResults() {
+  $("resultsEmpty").style.display = "none";
+  $("resultsContent").style.display = "block";
+
+  $("statStops").textContent = state.optimizedOrder.length;
+  $("statDist").textContent = state.totalDistance.toFixed(1);
+  // Rough estimate: 30 km/h average urban driving + 15 min per stop
+  const driveMin = (state.totalDistance / 30) * 60;
+  const stopMin = state.optimizedOrder.length * 15;
+  $("statTime").textContent = Math.round(driveMin + stopMin);
+
+  drawMap();
+  renderChunkLinks();
+}
+
+function drawMap() {
+  if (!map) {
+    map = L.map("map");
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: '© OpenStreetMap',
+      maxZoom: 19,
+    }).addTo(map);
+  }
+  // Clear previous
+  mapLayers.forEach(l => map.removeLayer(l));
+  mapLayers = [];
+
+  const points = state.optimizedPoints;
+  const coords = points.map(p => [p.lat, p.lng]);
+
+  // Route line
+  const poly = L.polyline(
+    state.returnToStart ? [...coords, coords[0]] : coords,
+    { color: "#1d4e8a", weight: 4, opacity: 0.75, dashArray: "8,6" }
+  ).addTo(map);
+  mapLayers.push(poly);
+
+  // Numbered markers
+  points.forEach((p, i) => {
+    const isStart = p.isStart;
+    const label = isStart ? "S" : String(i);
+    const color = isStart ? "#14161c" : "#d94824";
+    const icon = L.divIcon({
+      html: `<div style="
+        background:${color};color:#fdfcf9;
+        width:30px;height:30px;border-radius:50%;
+        display:flex;align-items:center;justify-content:center;
+        font-family:'JetBrains Mono',monospace;font-weight:700;font-size:13px;
+        border:2px solid #fdfcf9;
+        box-shadow:0 2px 6px rgba(0,0,0,0.3);
+      ">${label}</div>`,
+      className: "",
+      iconSize: [30,30],
+      iconAnchor: [15,15],
+    });
+    const m = L.marker([p.lat, p.lng], { icon }).addTo(map);
+    m.bindPopup(`<strong>${isStart ? "出発地点" : `${i}. ${escapeHTML(p.ref.name)}`}</strong><br>${escapeHTML(p.ref.address)}`);
+    mapLayers.push(m);
+  });
+
+  map.fitBounds(coords, { padding: [40, 40] });
+}
+
+/* ============================================================
+   GOOGLE MAPS LINK (with auto-chunking for many stops)
+   ============================================================ */
+const GMAPS_MAX_PER_LINK = 10; // origin + 8 waypoints + destination
+
+function buildMapsUrl(pts, loopToFirst) {
+  const fmt = p => `${p.lat},${p.lng}`;
+  const origin = fmt(pts[0]);
+  let destination, waypoints;
+  if (loopToFirst) {
+    destination = origin;
+    waypoints = pts.slice(1).map(fmt).join("|");
+  } else {
+    destination = fmt(pts[pts.length - 1]);
+    waypoints = pts.slice(1, -1).map(fmt).join("|");
+  }
+  let url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&travelmode=driving`;
+  if (waypoints) url += `&waypoints=${encodeURIComponent(waypoints)}`;
+  return url;
+}
+
+// Build chunks. Each chunk overlaps by 1 with the next (end of A = start of B)
+function buildChunks(points, returnToStart) {
+  const pts = returnToStart ? [...points, points[0]] : points;
+  const chunks = [];
+  let i = 0;
+  while (i < pts.length - 1) {
+    const end = Math.min(i + GMAPS_MAX_PER_LINK, pts.length);
+    chunks.push({
+      points: pts.slice(i, end),
+      startIdx: i,
+      endIdx: end - 1,
+    });
+    if (end >= pts.length) break;
+    i = end - 1; // overlap by 1
+  }
+  return chunks;
+}
+
+$("btnOpenGoogle").addEventListener("click", () => {
+  const points = state.optimizedPoints;
+  if (!points || points.length < 2) return;
+  const chunks = buildChunks(points, state.returnToStart);
+  // Open first chunk
+  window.open(buildMapsUrl(chunks[0].points, false), "_blank");
+});
+
+function renderChunkLinks() {
+  const points = state.optimizedPoints;
+  const wrap = $("chunkLinks");
+  if (!points) { wrap.style.display = "none"; return; }
+  const chunks = buildChunks(points, state.returnToStart);
+  if (chunks.length <= 1) {
+    wrap.style.display = "none";
+    $("resultHint").innerHTML = "Google Mapsボタンを押すと、最適化された順路がそのままナビゲーションに渡され、スマホでも経路案内が起動します。";
+    return;
+  }
+  // Build chunk buttons - label each by what stop numbers it covers
+  const hasStart = points[0].isStart;
+  const startNumOffset = hasStart ? 0 : 1; // if no synthetic start, first point is store #1
+  wrap.innerHTML = `
+    <div class="chunk-links">
+      <div class="chunk-links-title">区間別Google Mapsリンク（${chunks.length}区間）</div>
+      <div class="chunk-btn-grid">
+        ${chunks.map((c, ci) => {
+          const startLabel = hasStart && c.startIdx === 0 ? "出発地点" : `${c.startIdx + startNumOffset}店目`;
+          const endLabel = (state.returnToStart && c.endIdx === points.length) ? "出発地点に戻る"
+            : (hasStart && c.endIdx === 0) ? "出発地点"
+            : `${c.endIdx + startNumOffset}店目`;
+          return `<button class="chunk-btn" onclick="openChunk(${ci})">
+            区間 ${ci + 1}
+            <span class="chunk-range">${startLabel} → ${endLabel}</span>
+          </button>`;
+        }).join("")}
+      </div>
+    </div>`;
+  wrap.style.display = "block";
+  $("resultHint").innerHTML = `店舗数が多いためGoogle Mapsへの送信を <strong>${chunks.length}区間</strong> に分割しました。各区間ボタンで個別にナビ起動できます。「Google Mapsで開く」は区間1を開きます。`;
+}
+
+window.openChunk = function(idx) {
+  const chunks = buildChunks(state.optimizedPoints, state.returnToStart);
+  if (chunks[idx]) window.open(buildMapsUrl(chunks[idx].points, false), "_blank");
+};
+
+/* ============================================================
+   CSV EXPORT
+   ============================================================ */
+$("btnExport").addEventListener("click", () => {
+  const rows = [["順番","店舗名","都道府県","住所","営業時間","備考","緯度","経度"]];
+  state.optimizedOrder.forEach((idx, i) => {
+    const s = state.stores[idx];
+    rows.push([i+1, s.name, s.prefecture||"", s.address, s.hours||"", s.note||"", s.lat||"", s.lng||""]);
+  });
+  const csv = rows.map(r => r.map(c => {
+    const v = String(c);
+    return /[",\n]/.test(v) ? `"${v.replace(/"/g,'""')}"` : v;
+  }).join(",")).join("\n");
+  const bom = "\uFEFF"; // for Excel
+  const blob = new Blob([bom + csv], { type: "text/csv" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  const fname = state.filter
+    ? `route_${state.filter}_${new Date().toISOString().slice(0,10)}.csv`
+    : `route_${new Date().toISOString().slice(0,10)}.csv`;
+  link.download = fname;
+  link.click();
+  toast("CSVをダウンロードしました");
+});
+
+/* ============================================================
+   PDF IMPORT
+   ============================================================ */
+if (window.pdfjsLib) {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+}
+
+let pdfRawText = "";
+let pdfEntries = [];
+
+const pdfZone = $("pdfUploadZone");
+const pdfInput = $("pdfFileInput");
+pdfZone.addEventListener("click", () => pdfInput.click());
+pdfZone.addEventListener("dragover", e => { e.preventDefault(); pdfZone.classList.add("dragging"); });
+pdfZone.addEventListener("dragleave", () => pdfZone.classList.remove("dragging"));
+pdfZone.addEventListener("drop", e => {
+  e.preventDefault();
+  pdfZone.classList.remove("dragging");
+  if (e.dataTransfer.files[0]) handlePdfFile(e.dataTransfer.files[0]);
+});
+pdfInput.addEventListener("change", e => {
+  if (e.target.files[0]) handlePdfFile(e.target.files[0]);
+});
+
+async function handlePdfFile(file) {
+  if (!window.pdfjsLib) { toast("PDFライブラリの読み込み待ちです。少し待ってからお試しください", true); return; }
+  showProgress("PDFを読み込み中...", 10);
+  try {
+    const buf = await file.arrayBuffer();
+    // cMapUrl is critical for Japanese / CJK font extraction
+    const pdf = await pdfjsLib.getDocument({
+      data: buf,
+      cMapUrl: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/",
+      cMapPacked: true,
+      useSystemFonts: true,
+    }).promise;
+    let allText = "";
+    for (let p = 1; p <= pdf.numPages; p++) {
+      showProgress(`ページ ${p}/${pdf.numPages} を解析中...`, 10 + (p / pdf.numPages) * 80);
+      const page = await pdf.getPage(p);
+      const content = await page.getTextContent();
+      // Reconstruct lines using y coordinate grouping (tolerance for slight diffs)
+      const items = content.items;
+      const lineBuckets = [];
+      for (const it of items) {
+        const y = it.transform[5];
+        const x = it.transform[4];
+        let bucket = lineBuckets.find(b => Math.abs(b.y - y) < 3);
+        if (!bucket) { bucket = { y, items: [] }; lineBuckets.push(bucket); }
+        bucket.items.push({ x, str: it.str });
+      }
+      lineBuckets.sort((a,b) => b.y - a.y);
+      for (const b of lineBuckets) {
+        b.items.sort((a,c) => a.x - c.x);
+        const line = b.items.map(it => it.str).join(" ").replace(/\s+/g, " ").trim();
+        if (line) allText += line + "\n";
+      }
+      allText += "\n";
+    }
+    hideProgress();
+    if (allText.trim().length < 20) {
+      toast("PDFからテキストを抽出できませんでした。スキャン画像PDFの可能性があります。手動入力をご利用ください", true);
+      return;
+    }
+    pdfRawText = allText;
+    pdfEntries = extractEntriesFromText(allText);
+    renderPdfPreview();
+    if (pdfEntries.length === 0) {
+      toast("住所らしき行が見つかりませんでした。生テキストを確認し、手動入力もご利用ください", true);
+    } else {
+      toast(`${pdfEntries.length}件の店舗候補を抽出しました`);
+    }
+  } catch(err) {
+    hideProgress();
+    console.error(err);
+    if (err.name === "PasswordException") {
+      toast("パスワード保護されたPDFは読み込めません", true);
+    } else if (err.name === "InvalidPDFException") {
+      toast("PDFファイルが破損しているか、対応していない形式です", true);
+    } else if (err.name === "MissingPDFException") {
+      toast("PDFファイルが見つかりません", true);
+    } else {
+      toast(`PDFの解析に失敗しました: ${err.message || err.name || "不明なエラー"}`, true);
+    }
+  }
+}
+
+function extractEntriesFromText(text) {
+  const lines = text.split("\n").map(l => l.trim()).filter(l => l.length > 0);
+  const prefRe = /(北海道|青森県|岩手県|宮城県|秋田県|山形県|福島県|茨城県|栃木県|群馬県|埼玉県|千葉県|東京都|神奈川県|新潟県|富山県|石川県|福井県|山梨県|長野県|岐阜県|静岡県|愛知県|三重県|滋賀県|京都府|大阪府|兵庫県|奈良県|和歌山県|鳥取県|島根県|岡山県|広島県|山口県|徳島県|香川県|愛媛県|高知県|福岡県|佐賀県|長崎県|熊本県|大分県|宮崎県|鹿児島県|沖縄県)/;
+  const hoursRe = /(\d{1,2})\s*[:：]\s*(\d{2})\s*[-〜～~ーー]\s*(\d{1,2})\s*[:：]\s*(\d{2})/;
+  const skipRe = /^(ページ|page|店舗一覧|営業時間|住所|店舗名|tel|fax|電話|備考|no\.?|\d+\s*$)/i;
+
+  const entries = [];
+  const usedNameIdx = new Set();
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!prefRe.test(line)) continue;
+    // Address line - clip from the prefecture onward, drop trailing tel-like patterns
+    const prefMatch = line.match(prefRe);
+    let address = line.substring(prefMatch.index).trim();
+    // Cut off trailing phone numbers
+    address = address.replace(/\s*(?:tel|TEL|電話|☎)[:：\s]*[\d\-()]+.*$/g, "").trim();
+    address = address.replace(/\s+\d{2,4}-\d{2,4}-\d{4}.*$/, "").trim();
+
+    // Name: look back up to 3 lines for a non-address, non-hours, non-skip line
+    let name = "";
+    for (let j = i - 1; j >= Math.max(0, i - 3); j--) {
+      if (usedNameIdx.has(j)) continue;
+      const cand = lines[j];
+      if (prefRe.test(cand)) continue;
+      if (hoursRe.test(cand)) continue;
+      if (skipRe.test(cand)) continue;
+      if (cand.length < 2 || cand.length > 60) continue;
+      if (/^[\d\s\-()]+$/.test(cand)) continue; // pure numbers
+      name = cand;
+      usedNameIdx.add(j);
+      break;
+    }
+    // If name not found before, check the same line prefix
+    if (!name && prefMatch.index > 0) {
+      const before = line.substring(0, prefMatch.index).trim();
+      if (before.length >= 2 && before.length <= 60) name = before;
+    }
+    if (!name) name = `店舗${entries.length + 1}`;
+
+    // Hours: scan ±3 lines for a HH:MM-HH:MM pattern
+    let hours = "";
+    for (let j = Math.max(0, i - 2); j <= Math.min(lines.length - 1, i + 3); j++) {
+      const m = lines[j].match(hoursRe);
+      if (m) {
+        hours = `${m[1].padStart(2,"0")}:${m[2]}-${m[3].padStart(2,"0")}:${m[4]}`;
+        break;
+      }
+    }
+
+    entries.push({ name, address, hours, note: "" });
+  }
+  // Deduplicate by address
+  const seen = new Set();
+  return entries.filter(e => {
+    if (seen.has(e.address)) return false;
+    seen.add(e.address);
+    return true;
+  });
+}
+
+function renderPdfPreview() {
+  $("pdfPreviewBox").style.display = "block";
+  $("pdfCount").textContent = `${pdfEntries.length}件`;
+  $("pdfRawText").textContent = pdfRawText;
+  $("pdfRows").innerHTML = pdfEntries.map((e, i) => `
+    <div class="pdf-row">
+      <input data-idx="${i}" data-field="name" value="${escapeHTML(e.name)}" placeholder="店舗名">
+      <input data-idx="${i}" data-field="address" value="${escapeHTML(e.address)}" placeholder="住所">
+      <input data-idx="${i}" data-field="hours" value="${escapeHTML(e.hours)}" placeholder="営業時間">
+      <button class="icon-btn" onclick="removePdfRow(${i})" title="削除">✕</button>
+    </div>
+  `).join("");
+  // Wire up inputs
+  $("pdfRows").querySelectorAll("input").forEach(inp => {
+    inp.addEventListener("input", e => {
+      const idx = parseInt(e.target.dataset.idx);
+      const field = e.target.dataset.field;
+      if (pdfEntries[idx]) pdfEntries[idx][field] = e.target.value;
+    });
+  });
+}
+
+window.removePdfRow = function(idx) {
+  pdfEntries.splice(idx, 1);
+  renderPdfPreview();
+};
+
+$("btnReparse").addEventListener("click", () => {
+  if (!pdfRawText) return;
+  pdfEntries = extractEntriesFromText(pdfRawText);
+  renderPdfPreview();
+  toast("再解析しました");
+});
+
+$("btnImportPdf").addEventListener("click", () => {
+  let added = 0, skipped = 0;
+  for (const e of pdfEntries) {
+    const name = (e.name || "").trim();
+    const address = (e.address || "").trim();
+    if (!name || !address) { skipped++; continue; }
+    state.stores.push({
+      id: Date.now() + Math.random() + added,
+      name, address,
+      hours: (e.hours || "").trim(),
+      note: (e.note || "").trim(),
+      prefecture: detectPrefecture(address),
+    });
+    added++;
+  }
+  state.optimizedOrder = null;
+  updatePrefectureFilter();
+  renderStoreList();
+  resetResults();
+  $("pdfPreviewBox").style.display = "none";
+  pdfInput.value = "";
+  pdfEntries = [];
+  toast(`${added}店舗を取り込みました${skipped > 0 ? `（${skipped}件スキップ）` : ""}`);
+});
+
+/* ============================================================
+   FAILURE BAR — shows when some addresses can't be geocoded
+   ============================================================ */
+function updateDiagBar() {
+  const failedCount = state.stores.filter(s => s.geocoded === false).length;
+  const bar = $("diagBar");
+  if (failedCount > 0) {
+    bar.classList.remove("hidden");
+    $("failedCount").textContent = failedCount;
+  } else {
+    bar.classList.add("hidden");
+  }
+}
+
+/* ============================================================
+   CONNECTIVITY DIAGNOSTICS
+   ============================================================ */
+async function testEndpoint(name, fn) {
+  const start = performance.now();
+  try {
+    const result = await fn();
+    const ms = Math.round(performance.now() - start);
+    return { name, status: result.ok ? "✓ OK" : `✗ ${result.msg || "FAIL"}`, detail: result.detail || "", ms };
+  } catch (e) {
+    const ms = Math.round(performance.now() - start);
+    return { name, status: "✗ ERROR", detail: e.message || String(e), ms };
+  }
+}
+
+async function runDiagnostics() {
+  $("diagOverlay").classList.add("active");
+  $("diagResults").textContent = "診断中...";
+  state.lastDiagResults = null;
+
+  const tests = [
+    () => testEndpoint("Nominatim (OSM)", async () => {
+      const r = await fetch("https://nominatim.openstreetmap.org/search?format=json&q=tokyo&limit=1");
+      if (!r.ok) return { ok: false, msg: `HTTP ${r.status}` };
+      const d = await r.json();
+      return { ok: Array.isArray(d) && d.length > 0, detail: `${d.length}件取得` };
+    }),
+    () => testEndpoint("Photon (Komoot)", async () => {
+      const r = await fetch("https://photon.komoot.io/api/?q=tokyo&limit=1");
+      if (!r.ok) return { ok: false, msg: `HTTP ${r.status}` };
+      const d = await r.json();
+      return { ok: d.features && d.features.length > 0, detail: `${(d.features||[]).length}件取得` };
+    }),
+    () => testEndpoint("GSI 国土地理院 (直接)", async () => {
+      const r = await fetch("https://msearch.gsi.go.jp/address-search/AddressSearch?q=東京駅");
+      if (!r.ok) return { ok: false, msg: `HTTP ${r.status}` };
+      const d = await r.json();
+      return { ok: Array.isArray(d) && d.length > 0, detail: `${d.length}件取得` };
+    }),
+    () => testEndpoint("GSI (corsproxy.io 経由)", async () => {
+      const target = "https://msearch.gsi.go.jp/address-search/AddressSearch?q=東京駅";
+      const r = await fetch(`https://corsproxy.io/?url=${encodeURIComponent(target)}`);
+      if (!r.ok) return { ok: false, msg: `HTTP ${r.status}` };
+      const d = await r.json();
+      return { ok: Array.isArray(d) && d.length > 0, detail: `${d.length}件取得` };
+    }),
+    () => testEndpoint("GSI (allorigins.win 経由)", async () => {
+      const target = "https://msearch.gsi.go.jp/address-search/AddressSearch?q=東京駅";
+      const r = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(target)}`);
+      if (!r.ok) return { ok: false, msg: `HTTP ${r.status}` };
+      const d = await r.json();
+      return { ok: Array.isArray(d) && d.length > 0, detail: `${d.length}件取得` };
+    }),
+  ];
+
+  const results = [];
+  for (const t of tests) {
+    const r = await t();
+    results.push(r);
+    $("diagResults").innerHTML = results.map(formatDiagRow).join("") +
+      (results.length < tests.length ? `<div style="opacity:0.5;">⏳ 残り ${tests.length - results.length} 件...</div>` : "");
+  }
+
+  const working = results.filter(r => r.status.startsWith("✓")).length;
+  $("diagResults").innerHTML = results.map(formatDiagRow).join("") +
+    `<div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--line);font-family:'Noto Sans JP',sans-serif;">
+      <strong>${working}/${results.length}</strong> のサービスに到達できました。<br>
+      ${working === 0 ? "❌ どこにも届いていません。ネットワーク／ファイアウォール／プロキシをご確認ください。" :
+        working < 3 ? "⚠ 一部のみ利用可能です。利用可能なサービスで再試行してください。" :
+        "✓ 大半は接続できています。ジオコーディングは動作するはずです。"}
+    </div>`;
+
+  state.lastDiagResults = { results, working, total: results.length };
+}
+
+function formatDiagRow(r) {
+  const color = r.status.startsWith("✓") ? "var(--success)" : "var(--accent)";
+  return `<div style="border-bottom:1px dashed var(--line);padding:4px 0;">
+    <span style="color:${color};font-weight:700;">${r.status}</span>
+    <span style="color:var(--ink);"> ${r.name}</span>
+    <span style="color:var(--ink-soft);"> (${r.ms}ms)</span>
+    ${r.detail ? `<div style="color:var(--ink-soft);padding-left:14px;font-size:10px;">${escapeHTML(r.detail)}</div>` : ""}
+  </div>`;
+}
+
+$("btnDiag").addEventListener("click", runDiagnostics);
+$("diagRerun").addEventListener("click", runDiagnostics);
+$("diagClose").addEventListener("click", () => $("diagOverlay").classList.remove("active"));
+$("diagCloseBtn").addEventListener("click", () => $("diagOverlay").classList.remove("active"));
+$("diagOverlay").addEventListener("click", (e) => {
+  if (e.target === $("diagOverlay")) $("diagOverlay").classList.remove("active");
+});
+
+$("diagCopy").addEventListener("click", async () => {
+  const d = state.lastDiagResults;
+  if (!d) { toast("先に診断を実行してください", true); return; }
+  const now = new Date().toISOString().replace("T", " ").substring(0, 19);
+  const lines = [
+    `=== 接続診断結果 ===`,
+    `[${now}]`,
+    `環境: ${navigator.userAgent}`,
+    `Origin: ${location.origin || "(file://)"}`,
+    ``,
+  ];
+  d.results.forEach(r => {
+    lines.push(`${r.status}  ${r.name}  (${r.ms}ms)`);
+    if (r.detail) lines.push(`    ${r.detail}`);
+  });
+  lines.push(``);
+  lines.push(`到達: ${d.working}/${d.total} サービス`);
+  const text = lines.join("\n");
+
+  // Try clipboard API, fall back to textarea hack
+  let copied = false;
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+      copied = true;
+    }
+  } catch(e) { /* fallback */ }
+  if (!copied) {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed"; ta.style.left = "-9999px";
+    document.body.appendChild(ta);
+    ta.select();
+    try { copied = document.execCommand("copy"); } catch(e) {}
+    document.body.removeChild(ta);
+  }
+
+  if (copied) {
+    toast("結果をクリップボードにコピーしました ✓ チャットに貼り付けてください");
+  } else {
+    // Last resort: show in a prompt so user can manually copy
+    window.prompt("このテキストをコピーしてチャットに貼り付けてください:", text);
+  }
+});
+
+/* ============================================================
+   MAP PICKER (interactive coordinate selection)
+   ============================================================ */
+const PREF_COORDS = {
+  "北海道":[43.0642,141.3469],"青森県":[40.8244,140.7400],"岩手県":[39.7036,141.1527],
+  "宮城県":[38.2688,140.8721],"秋田県":[39.7186,140.1024],"山形県":[38.2404,140.3636],
+  "福島県":[37.7500,140.4683],"茨城県":[36.3418,140.4467],"栃木県":[36.5660,139.8836],
+  "群馬県":[36.3911,139.0608],"埼玉県":[35.8569,139.6489],"千葉県":[35.6047,140.1234],
+  "東京都":[35.6762,139.6503],"神奈川県":[35.4476,139.6425],"新潟県":[37.9024,139.0234],
+  "富山県":[36.6953,137.2113],"石川県":[36.5946,136.6256],"福井県":[36.0651,136.2216],
+  "山梨県":[35.6638,138.5683],"長野県":[36.6513,138.1812],"岐阜県":[35.3912,136.7223],
+  "静岡県":[34.9769,138.3831],"愛知県":[35.1802,136.9066],"三重県":[34.7303,136.5086],
+  "滋賀県":[35.0045,135.8686],"京都府":[35.0116,135.7681],"大阪府":[34.6937,135.5023],
+  "兵庫県":[34.6913,135.1830],"奈良県":[34.6851,135.8048],"和歌山県":[34.2261,135.1675],
+  "鳥取県":[35.5039,134.2381],"島根県":[35.4723,133.0505],"岡山県":[34.6618,133.9344],
+  "広島県":[34.3963,132.4596],"山口県":[34.1859,131.4706],"徳島県":[34.0658,134.5593],
+  "香川県":[34.3401,134.0434],"愛媛県":[33.8416,132.7657],"高知県":[33.5597,133.5311],
+  "福岡県":[33.6064,130.4181],"佐賀県":[33.2494,130.2989],"長崎県":[32.7503,129.8779],
+  "熊本県":[32.7898,130.7417],"大分県":[33.2382,131.6126],"宮崎県":[31.9111,131.4239],
+  "鹿児島県":[31.5602,130.5581],"沖縄県":[26.2124,127.6809]
+};
+
+let pickerMap = null;
+let pickerMarker = null;
+let pickerStoreIdx = -1;
+let pickerCoords = null;
+
+window.openPicker = function(idx) {
+  const s = state.stores[idx];
+  if (!s) return;
+  pickerStoreIdx = idx;
+  pickerCoords = null;
+  $("pickerName").textContent = s.name;
+  $("pickerAddr").textContent = s.address;
+  $("pickerCoordDisplay").textContent = "地図をクリックしてピンを立ててください";
+  $("pickerCoordDisplay").style.color = "var(--ink-soft)";
+  $("pickerSave").disabled = true;
+  $("pickerSearchInput").value = s.address;
+  $("pickerOverlay").classList.add("active");
+
+  // Determine initial view: prefecture center if known, else Japan
+  const center = (s.prefecture && PREF_COORDS[s.prefecture]) || [36.5, 138];
+  const zoom = (s.prefecture && PREF_COORDS[s.prefecture]) ? 11 : 5;
+
+  // Init map lazily (after modal becomes visible so size measures correctly)
+  setTimeout(() => {
+    if (!pickerMap) {
+      pickerMap = L.map("pickerMap");
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: '© OpenStreetMap',
+        maxZoom: 19,
+      }).addTo(pickerMap);
+      pickerMap.on("click", (e) => setPickerPin(e.latlng.lat, e.latlng.lng));
+    }
+    if (pickerMarker) { pickerMap.removeLayer(pickerMarker); pickerMarker = null; }
+    pickerMap.setView(center, zoom);
+    pickerMap.invalidateSize();
+  }, 50);
+};
+
+function setPickerPin(lat, lng) {
+  pickerCoords = { lat, lng };
+  if (pickerMarker) pickerMap.removeLayer(pickerMarker);
+  const icon = L.divIcon({
+    html: `<div style="background:var(--accent);color:var(--paper);width:32px;height:32px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);display:flex;align-items:center;justify-content:center;border:2px solid var(--paper);box-shadow:0 2px 8px rgba(0,0,0,0.4);"><span style="transform:rotate(45deg);font-size:14px;">📍</span></div>`,
+    className: "",
+    iconSize: [32,32],
+    iconAnchor: [16,32],
+  });
+  pickerMarker = L.marker([lat, lng], { icon }).addTo(pickerMap);
+  $("pickerCoordDisplay").textContent = `📍 ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+  $("pickerCoordDisplay").style.color = "var(--accent)";
+  $("pickerSave").disabled = false;
+}
+
+$("pickerClose").addEventListener("click", () => $("pickerOverlay").classList.remove("active"));
+$("pickerCancel").addEventListener("click", () => $("pickerOverlay").classList.remove("active"));
+$("pickerOverlay").addEventListener("click", (e) => {
+  if (e.target === $("pickerOverlay")) $("pickerOverlay").classList.remove("active");
+});
+
+$("pickerSave").addEventListener("click", () => {
+  if (pickerStoreIdx < 0 || !pickerCoords) return;
+  const s = state.stores[pickerStoreIdx];
+  s.lat = pickerCoords.lat;
+  s.lng = pickerCoords.lng;
+  s.geocoded = true;
+  $("pickerOverlay").classList.remove("active");
+  state.optimizedOrder = null;
+  renderStoreList();
+  updateDiagBar();
+  resetResults();
+  toast(`${s.name} の位置を設定しました ✓`);
+});
+
+// Picker search: try coordinates first, then geocode
+$("pickerSearchBtn").addEventListener("click", async () => {
+  const q = $("pickerSearchInput").value.trim();
+  if (!q) return;
+  const coords = parseCoords(q);
+  if (coords) {
+    pickerMap.setView([coords.lat, coords.lng], 16);
+    setPickerPin(coords.lat, coords.lng);
+    return;
+  }
+  $("pickerSearchBtn").disabled = true;
+  $("pickerSearchBtn").textContent = "検索中...";
+  const r = await geocode(q);
+  $("pickerSearchBtn").disabled = false;
+  $("pickerSearchBtn").textContent = "検索";
+  if (r) {
+    pickerMap.setView([r.lat, r.lng], 16);
+    setPickerPin(r.lat, r.lng);
+  } else {
+    toast("検索結果なし。地図を直接クリックしてピンを立ててください", true);
+  }
+});
+$("pickerSearchInput").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") $("pickerSearchBtn").click();
+});
+
+/* init */
+updatePrefectureFilter();
+renderStoreList();
+resetResults();
+</script>
+</body>
+</html>
