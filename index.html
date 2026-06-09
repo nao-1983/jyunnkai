@@ -372,8 +372,11 @@
   }
   .action-row {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1.4fr 1fr 1fr;
     gap: 8px;
+  }
+  @media (max-width: 480px) {
+    .action-row { grid-template-columns: 1fr; }
   }
   .chunk-links {
     margin-top: 12px;
@@ -924,8 +927,9 @@
         <div id="map"></div>
 
         <div class="action-row">
-          <button class="btn btn-accent" id="btnOpenGoogle">📍 Google Mapsで開く</button>
-          <button class="btn btn-secondary" id="btnExport">📥 CSVダウンロード</button>
+          <button class="btn btn-accent" id="btnOpenGoogle">📍 Google Maps</button>
+          <button class="btn btn-secondary" id="btnExportPDF">📄 PDF出力</button>
+          <button class="btn btn-secondary" id="btnExport">📥 CSV</button>
         </div>
         <div id="chunkLinks" style="display:none;"></div>
         <div class="hint-box" style="margin-top:12px;" id="resultHint">
@@ -993,6 +997,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.3/html2pdf.bundle.min.js"></script>
 <script>
 /* ============================================================
    STATE
@@ -1838,6 +1843,133 @@ window.openChunk = function(idx) {
   const chunks = buildChunks(state.optimizedPoints, state.returnToStart);
   if (chunks[idx]) window.open(buildMapsUrl(chunks[idx].points, false), "_blank");
 };
+
+/* ============================================================
+   PDF EXPORT (printable route report)
+   ============================================================ */
+function buildRouteReportElement() {
+  const el = document.createElement("div");
+  el.style.cssText = `
+    position: absolute;
+    left: -9999px;
+    top: 0;
+    width: 794px;
+    font-family: 'Noto Sans JP', 'Zen Kaku Gothic New', sans-serif;
+    padding: 32px;
+    background: #ffffff;
+    color: #14161c;
+    line-height: 1.5;
+    box-sizing: border-box;
+  `;
+
+  const today = new Date().toISOString().slice(0, 10);
+  const stopsCount = state.optimizedOrder.length;
+  const totalKm = state.totalDistance.toFixed(1);
+  const driveMin = (state.totalDistance / 30) * 60;
+  const stopMin = stopsCount * 15;
+  const totalMin = Math.round(driveMin + stopMin);
+
+  const statBox = (label, value, unit) => `
+    <div style="flex:1;padding:14px;background:#f6f4ee;border:1px solid #e3dfd4;border-radius:4px;">
+      <div style="font-size:10px;color:#5a5e6b;letter-spacing:0.12em;text-transform:uppercase;font-weight:700;">${label}</div>
+      <div style="font-size:26px;font-weight:900;margin-top:6px;letter-spacing:-0.01em;">${value}<span style="font-size:12px;color:#5a5e6b;font-weight:400;margin-left:2px;">${unit}</span></div>
+    </div>`;
+
+  const rows = state.optimizedOrder.map((idx, i) => {
+    const s = state.stores[idx];
+    const prefBadge = s.prefecture
+      ? `<span style="display:inline-block;font-size:10px;background:#f6f4ee;border:1px solid #e3dfd4;padding:1px 6px;border-radius:2px;color:#5a5e6b;margin-right:6px;vertical-align:middle;">${escapeHTML(s.prefecture)}</span>`
+      : "";
+    return `
+      <div style="display:flex;gap:14px;padding:14px 0;border-bottom:1px solid #e3dfd4;page-break-inside:avoid;break-inside:avoid;">
+        <div style="flex-shrink:0;width:36px;height:36px;background:#d94824;color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;">${i+1}</div>
+        <div style="flex:1;min-width:0;">
+          <div style="font-weight:700;font-size:15px;margin-bottom:3px;">${prefBadge}${escapeHTML(s.name)}</div>
+          <div style="font-size:12px;color:#5a5e6b;">${escapeHTML(s.address)}</div>
+          ${s.hours ? `<div style="font-size:11px;color:#c48312;margin-top:4px;"><strong>営業時間:</strong> ${escapeHTML(s.hours)}</div>` : ""}
+          ${s.note ? `<div style="font-size:11px;color:#5a5e6b;margin-top:2px;"><strong>備考:</strong> ${escapeHTML(s.note)}</div>` : ""}
+          <div style="font-size:10px;color:#888;margin-top:5px;font-family:'JetBrains Mono',monospace;">座標: ${s.lat != null ? s.lat.toFixed(5) : "-"}, ${s.lng != null ? s.lng.toFixed(5) : "-"}</div>
+        </div>
+        <div style="flex-shrink:0;width:60px;border-left:1px solid #e3dfd4;padding-left:10px;font-size:10px;color:#5a5e6b;">
+          チェック<br>
+          <div style="width:20px;height:20px;border:1.5px solid #5a5e6b;border-radius:2px;margin-top:4px;"></div>
+        </div>
+      </div>`;
+  }).join("");
+
+  el.innerHTML = `
+    <div style="border-bottom: 3px solid #d94824; padding-bottom: 18px; margin-bottom: 24px;">
+      <div style="font-size:11px;letter-spacing:0.25em;color:#d94824;font-weight:700;margin-bottom:8px;">FRANCHISE ROUTE PLAN</div>
+      <h1 style="font-size:30px;font-weight:900;margin:0;line-height:1.2;letter-spacing:-0.02em;">巡回ルート計画書</h1>
+      <div style="font-size:13px;color:#5a5e6b;margin-top:10px;">
+        <strong>作成日:</strong> ${today}${state.filter ? `　／　<strong>対象地域:</strong> ${escapeHTML(state.filter)}` : ""}${state.returnToStart ? `　／　<strong>出発地点に戻る</strong>` : ""}
+      </div>
+    </div>
+
+    <div style="display:flex;gap:12px;margin-bottom:24px;">
+      ${statBox("訪問店舗", stopsCount, "店")}
+      ${statBox("総距離", totalKm, "km")}
+      ${statBox("推定時間", totalMin, "分")}
+    </div>
+
+    <div style="font-size:11px;color:#5a5e6b;margin-bottom:6px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;border-bottom:2px solid #14161c;padding-bottom:6px;">
+      巡回順路
+    </div>
+
+    ${rows}
+
+    <div style="margin-top:32px;padding-top:14px;border-top:1px solid #e3dfd4;font-size:10px;color:#888;display:flex;justify-content:space-between;">
+      <span>Franchise Route Optimizer</span>
+      <span>生成: ${new Date().toLocaleString("ja-JP")}</span>
+    </div>
+  `;
+  return el;
+}
+
+async function generatePDF() {
+  if (!state.optimizedOrder || state.optimizedOrder.length === 0) {
+    toast("先にルートを最適化してください", true);
+    return;
+  }
+  if (typeof html2pdf === "undefined") {
+    toast("PDFライブラリ読み込み中です。少し待ってから再試行してください", true);
+    return;
+  }
+
+  const btn = $("btnExportPDF");
+  btn.disabled = true;
+  showProgress("PDF生成中...", 20);
+
+  const reportEl = buildRouteReportElement();
+  document.body.appendChild(reportEl);
+
+  const today = new Date().toISOString().slice(0, 10);
+  const filename = state.filter
+    ? `route_${state.filter}_${today}.pdf`
+    : `route_${today}.pdf`;
+
+  try {
+    await html2pdf().set({
+      margin: [10, 10, 12, 10],
+      filename,
+      image: { type: "jpeg", quality: 0.95 },
+      html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff", logging: false },
+      jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+      pagebreak: { mode: ["css", "legacy"] },
+    }).from(reportEl).save();
+    hideProgress();
+    toast("PDFを保存しました ✓");
+  } catch (e) {
+    hideProgress();
+    console.error(e);
+    toast("PDF生成失敗: " + (e.message || e), true);
+  } finally {
+    if (reportEl.parentNode) reportEl.parentNode.removeChild(reportEl);
+    btn.disabled = false;
+  }
+}
+
+$("btnExportPDF").addEventListener("click", generatePDF);
 
 /* ============================================================
    CSV EXPORT
