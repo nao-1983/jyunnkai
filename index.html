@@ -211,7 +211,11 @@
     border-radius: 2px;
     transition: all 0.15s;
     letter-spacing: 0.02em;
+    text-decoration: none;
+    text-align: center;
+    box-sizing: border-box;
   }
+  a.btn { line-height: 1.2; }
   .btn:hover { background: var(--accent); border-color: var(--accent); }
   .btn:disabled { opacity: 0.4; cursor: not-allowed; }
   .btn-secondary {
@@ -410,6 +414,8 @@
     border-radius: 2px;
     text-align: left;
     transition: all 0.15s;
+    text-decoration: none;
+    display: block;
   }
   .chunk-btn:hover { background: var(--accent); color: var(--paper); border-color: var(--accent); }
   .chunk-btn .chunk-range {
@@ -949,7 +955,7 @@
         <div id="map"></div>
 
         <div class="action-row">
-          <button class="btn btn-accent" id="btnOpenGoogle">📍 Google Maps</button>
+          <a class="btn btn-accent" id="btnOpenGoogle" href="#" target="_blank" rel="noopener">📍 Google Maps</a>
           <button class="btn btn-secondary" id="btnExportPDF">📄 PDF出力</button>
           <button class="btn btn-secondary" id="btnExport">📥 CSV</button>
         </div>
@@ -1424,7 +1430,7 @@ $("btnImport").addEventListener("click", () => {
    ============================================================ */
 // Clean & normalize a Japanese address for better geocoding
 function normalizeAddress(addr) {
-  return addr
+  let s = addr
     .replace(/[\uFF10-\uFF19]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)) // full-width digits → half
     .replace(/[\uFF21-\uFF3A\uFF41-\uFF5A]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)) // full-width latin
     .replace(/[ーー－‐‑‒–—―−]/g, "-")              // unify all dash variants
@@ -1433,6 +1439,20 @@ function normalizeAddress(addr) {
     .replace(/〒\s*\d{3}-?\d{4}\s*/g, "")          // strip postal codes
     .replace(/[\u3000\s]+/g, " ")                  // unify whitespace
     .trim();
+
+  // Trim any leading garbage before the prefecture name, and dedupe consecutive prefecture mentions
+  // Handles cases like "宮崎県 宮崎県延岡市..." or "店舗番号 〒xxx 宮崎県..."
+  const prefRe = /(北海道|青森県|岩手県|宮城県|秋田県|山形県|福島県|茨城県|栃木県|群馬県|埼玉県|千葉県|東京都|神奈川県|新潟県|富山県|石川県|福井県|山梨県|長野県|岐阜県|静岡県|愛知県|三重県|滋賀県|京都府|大阪府|兵庫県|奈良県|和歌山県|鳥取県|島根県|岡山県|広島県|山口県|徳島県|香川県|愛媛県|高知県|福岡県|佐賀県|長崎県|熊本県|大分県|宮崎県|鹿児島県|沖縄県)/g;
+  const matches = [...s.matchAll(prefRe)];
+  if (matches.length >= 2) {
+    // Multiple prefecture occurrences — keep from the LAST one (where the real address starts)
+    s = s.substring(matches[matches.length - 1].index);
+  } else if (matches.length === 1 && matches[0].index > 0) {
+    // Single occurrence but with garbage before — strip the garbage
+    s = s.substring(matches[0].index);
+  }
+
+  return s.trim();
 }
 
 // Generate progressively simpler address candidates to try
@@ -1735,6 +1755,7 @@ function renderResults() {
 
   drawMap();
   renderChunkLinks();
+  updateMainMapsLink();
 }
 
 function drawMap() {
@@ -1827,25 +1848,19 @@ function buildChunks(points, returnToStart) {
   return chunks;
 }
 
-$("btnOpenGoogle").addEventListener("click", () => {
+// The "Google Maps" anchor gets its href updated on every render so a real
+// user tap navigates directly — no JS popup, no Safari blocking.
+function updateMainMapsLink() {
+  const a = $("btnOpenGoogle");
   const points = state.optimizedPoints;
-  if (!points || points.length < 2) return;
-  const chunks = buildChunks(points, state.returnToStart);
-  openChunkUrl(chunks[0].points);
-});
-
-function openChunkUrl(pts) {
-  const url = buildMapsUrl(pts, false);
-  const w = window.open(url, "_blank");
-  if (!w || w.closed) {
-    // Popup blocked - copy URL to clipboard and tell user
-    try {
-      navigator.clipboard.writeText(url);
-      toast("ポップアップがブロックされました。URLをコピーしました。Safariで新規タブに貼り付けてください");
-    } catch(e) {
-      window.prompt("このURLをコピーして新規タブで開いてください:", url);
-    }
+  if (!points || points.length < 2) {
+    a.href = "#";
+    a.onclick = (e) => { e.preventDefault(); toast("先にルートを最適化してください", true); };
+    return;
   }
+  const chunks = buildChunks(points, state.returnToStart);
+  a.href = buildMapsUrl(chunks[0].points, false);
+  a.onclick = null;
 }
 
 function renderChunkLinks() {
@@ -1858,9 +1873,9 @@ function renderChunkLinks() {
     $("resultHint").innerHTML = "Google Mapsボタンを押すと、最適化された順路がそのままナビゲーションに渡され、スマホでも経路案内が起動します。";
     return;
   }
-  // Build chunk buttons - label each by what stop numbers it covers
+  // Build chunk anchor links - real <a> tags work reliably on iPad Safari
   const hasStart = points[0].isStart;
-  const startNumOffset = hasStart ? 0 : 1; // if no synthetic start, first point is store #1
+  const startNumOffset = hasStart ? 0 : 1;
   wrap.innerHTML = `
     <div class="chunk-links">
       <div class="chunk-links-title">区間別Google Mapsリンク（${chunks.length}区間）</div>
@@ -1870,21 +1885,17 @@ function renderChunkLinks() {
           const endLabel = (state.returnToStart && c.endIdx === points.length) ? "出発地点に戻る"
             : (hasStart && c.endIdx === 0) ? "出発地点"
             : `${c.endIdx + startNumOffset}店目`;
-          return `<button class="chunk-btn" onclick="openChunk(${ci})">
+          const url = buildMapsUrl(c.points, false);
+          return `<a class="chunk-btn" href="${url}" target="_blank" rel="noopener">
             区間 ${ci + 1}
             <span class="chunk-range">${startLabel} → ${endLabel}</span>
-          </button>`;
+          </a>`;
         }).join("")}
       </div>
     </div>`;
   wrap.style.display = "block";
   $("resultHint").innerHTML = `店舗数が多いためGoogle Mapsへの送信を <strong>${chunks.length}区間</strong> に分割しました。各区間ボタンで個別にナビ起動できます。「Google Mapsで開く」は区間1を開きます。`;
 }
-
-window.openChunk = function(idx) {
-  const chunks = buildChunks(state.optimizedPoints, state.returnToStart);
-  if (chunks[idx]) openChunkUrl(chunks[idx].points);
-};
 
 /* ============================================================
    PDF EXPORT (via browser print dialog → Save as PDF)
