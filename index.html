@@ -1802,18 +1802,11 @@ const GMAPS_MAX_PER_LINK = 10; // origin + 8 waypoints + destination
 
 function buildMapsUrl(pts, loopToFirst) {
   const fmt = p => `${p.lat.toFixed(6)},${p.lng.toFixed(6)}`;
-  const origin = fmt(pts[0]);
-  let destination, waypoints;
-  if (loopToFirst) {
-    destination = origin;
-    waypoints = pts.slice(1).map(fmt).join("|");
-  } else {
-    destination = fmt(pts[pts.length - 1]);
-    waypoints = pts.slice(1, -1).map(fmt).join("|");
-  }
-  let url = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&travelmode=driving`;
-  if (waypoints) url += `&waypoints=${encodeURIComponent(waypoints)}`;
-  return url;
+  const allStops = loopToFirst ? [...pts, pts[0]] : pts;
+  // Path-based format: https://www.google.com/maps/dir/LAT,LNG/LAT,LNG/...
+  // This matches what Google Maps' own share-URL uses, and is more reliable on iOS Safari
+  const path = allStops.map(fmt).join("/");
+  return `https://www.google.com/maps/dir/${path}/`;
 }
 
 // Build chunks. Each chunk overlaps by 1 with the next (end of A = start of B)
@@ -1838,9 +1831,22 @@ $("btnOpenGoogle").addEventListener("click", () => {
   const points = state.optimizedPoints;
   if (!points || points.length < 2) return;
   const chunks = buildChunks(points, state.returnToStart);
-  // Open first chunk
-  window.open(buildMapsUrl(chunks[0].points, false), "_blank");
+  openChunkUrl(chunks[0].points);
 });
+
+function openChunkUrl(pts) {
+  const url = buildMapsUrl(pts, false);
+  const w = window.open(url, "_blank");
+  if (!w || w.closed) {
+    // Popup blocked - copy URL to clipboard and tell user
+    try {
+      navigator.clipboard.writeText(url);
+      toast("ポップアップがブロックされました。URLをコピーしました。Safariで新規タブに貼り付けてください");
+    } catch(e) {
+      window.prompt("このURLをコピーして新規タブで開いてください:", url);
+    }
+  }
+}
 
 function renderChunkLinks() {
   const points = state.optimizedPoints;
@@ -1877,7 +1883,7 @@ function renderChunkLinks() {
 
 window.openChunk = function(idx) {
   const chunks = buildChunks(state.optimizedPoints, state.returnToStart);
-  if (chunks[idx]) window.open(buildMapsUrl(chunks[idx].points, false), "_blank");
+  if (chunks[idx]) openChunkUrl(chunks[idx].points);
 };
 
 /* ============================================================
