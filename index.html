@@ -851,8 +851,8 @@
             </div>
             <div class="pdf-rows" id="pdfRows"></div>
             <details class="pdf-raw" id="pdfRawWrap">
-              <summary>抽出した生テキストを表示</summary>
-              <div id="pdfRawText"></div>
+              <summary>抽出した生テキスト（編集可・編集後に「再解析」できます）</summary>
+              <textarea id="pdfRawText" style="width:100%;min-height:140px;font-family:'JetBrains Mono',monospace;font-size:11px;padding:8px;margin-top:6px;border:1px solid var(--line);border-radius:2px;background:var(--bg);box-sizing:border-box;"></textarea>
             </details>
           </div>
           <button class="btn btn-block" id="btnImportPdf" style="margin-top:8px;">これらをリストに追加</button>
@@ -1473,9 +1473,19 @@ function addressCandidates(addr) {
   return [...list].filter(s => s && s.length >= 4);
 }
 
+// Fetch with hard timeout — prevents hangs on iPad Safari with bad/CORS-blocked networks
+async function fetchWithTimeout(url, options = {}, timeoutMs = 4000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function geocodeGSI(address) {
   const direct = `https://msearch.gsi.go.jp/address-search/AddressSearch?q=${encodeURIComponent(address)}`;
-  // Try direct + several CORS proxies in sequence
   const urls = [
     direct,
     `https://corsproxy.io/?url=${encodeURIComponent(direct)}`,
@@ -1484,68 +1494,60 @@ async function geocodeGSI(address) {
   ];
   for (const url of urls) {
     try {
-      const res = await fetch(url);
+      const res = await fetchWithTimeout(url, {}, 4000);
       if (!res.ok) continue;
       const data = await res.json();
       if (Array.isArray(data) && data.length > 0) {
         const c = data[0].geometry.coordinates;
         return { lat: c[1], lng: c[0] };
       }
-    } catch(e) { /* try next */ }
+    } catch(e) { /* timeout or error - try next */ }
   }
   return null;
 }
 
 async function geocodePhoton(address) {
-  // Photon (Komoot) - OSM-based, free, CORS-enabled, no rate limit
   const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(address)}&lang=ja&limit=1`;
-  const res = await fetch(url);
-  if (!res.ok) return null;
-  const data = await res.json();
-  if (!data.features || data.features.length === 0) return null;
-  // Filter to Japan to avoid wild international matches
-  const f = data.features.find(ft => (ft.properties.country === "Japan" || ft.properties.countrycode === "JP")) || data.features[0];
-  const c = f.geometry.coordinates;
-  return { lat: c[1], lng: c[0] };
+  try {
+    const res = await fetchWithTimeout(url, {}, 4000);
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data.features || data.features.length === 0) return null;
+    const f = data.features.find(ft => (ft.properties.country === "Japan" || ft.properties.countrycode === "JP")) || data.features[0];
+    const c = f.geometry.coordinates;
+    return { lat: c[1], lng: c[0] };
+  } catch(e) { return null; }
 }
 
 async function geocodeNominatim(address) {
   const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=jp&q=${encodeURIComponent(address)}`;
-  const res = await fetch(url, { headers: { "Accept-Language": "ja" } });
-  if (!res.ok) return null;
-  const data = await res.json();
-  if (!Array.isArray(data) || data.length === 0) return null;
-  return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+  try {
+    const res = await fetchWithTimeout(url, {}, 4000);
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!Array.isArray(data) || data.length === 0) return null;
+    return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+  } catch(e) { return null; }
 }
 
-// Try GSI for all candidates, then Photon, then Nominatim
+// Try GSI for all candidates, then Photon, then Nominatim — limited to top 2 candidates per service for speed
 async function geocode(address) {
-  const candidates = addressCandidates(address);
-  const tries = [];
+  const candidates = addressCandidates(address).slice(0, 2);
 
   for (const a of candidates) {
-    try {
-      const r = await geocodeGSI(a);
-      tries.push({ service: "GSI", query: a, ok: !!r });
-      if (r) { console.log("[geocode] GSI matched:", a, r); return r; }
-    } catch(e) { tries.push({ service: "GSI", query: a, error: e.message }); }
+    const r = await geocodeGSI(a);
+    if (r) { console.log("[geocode] GSI:", a); return r; }
   }
   for (const a of candidates) {
-    try {
-      const r = await geocodePhoton(a);
-      tries.push({ service: "Photon", query: a, ok: !!r });
-      if (r) { console.log("[geocode] Photon matched:", a, r); return r; }
-    } catch(e) { tries.push({ service: "Photon", query: a, error: e.message }); }
+    const r = await geocodePhoton(a);
+    if (r) { console.log("[geocode] Photon:", a); return r; }
   }
-  for (const a of candidates) {
-    try {
-      const r = await geocodeNominatim(a);
-      tries.push({ service: "Nominatim", query: a, ok: !!r });
-      if (r) { console.log("[geocode] Nominatim matched:", a, r); return r; }
-    } catch(e) { tries.push({ service: "Nominatim", query: a, error: e.message }); }
-    await new Promise(r => setTimeout(r, 1100));
+  for (let i = 0; i < candidates.length; i++) {
+    if (i > 0) await new Promise(r => setTimeout(r, 1100));
+    const r = await geocodeNominatim(candidates[i]);
+    if (r) { console.log("[geocode] Nominatim:", candidates[i]); return r; }
   }
-  console.warn("[geocode] All attempts failed for:", address, tries);
+  console.warn("[geocode] All attempts failed for:", address);
   return null;
 }
 
@@ -1748,19 +1750,21 @@ function drawMap() {
   mapLayers = [];
 
   const points = state.optimizedPoints;
+  if (!points || points.length === 0) return;
   const coords = points.map(p => [p.lat, p.lng]);
 
   // Route line
   const poly = L.polyline(
     state.returnToStart ? [...coords, coords[0]] : coords,
-    { color: "#1d4e8a", weight: 4, opacity: 0.75, dashArray: "8,6" }
+    { color: "#1d4e8a", weight: 4, opacity: 0.85, dashArray: "8,6" }
   ).addTo(map);
   mapLayers.push(poly);
 
-  // Numbered markers
+  // Numbered markers — first non-start store should be "1", not "0"
+  const hasStart = !!(points[0] && points[0].isStart);
   points.forEach((p, i) => {
     const isStart = p.isStart;
-    const label = isStart ? "S" : String(i);
+    const label = isStart ? "S" : String(hasStart ? i : (i + 1));
     const color = isStart ? "#14161c" : "#d94824";
     const icon = L.divIcon({
       html: `<div style="
@@ -1776,11 +1780,19 @@ function drawMap() {
       iconAnchor: [15,15],
     });
     const m = L.marker([p.lat, p.lng], { icon }).addTo(map);
-    m.bindPopup(`<strong>${isStart ? "出発地点" : `${i}. ${escapeHTML(p.ref.name)}`}</strong><br>${escapeHTML(p.ref.address)}`);
+    const displayNum = isStart ? "出発地点" : `${hasStart ? i : (i + 1)}. ${escapeHTML(p.ref.name)}`;
+    m.bindPopup(`<strong>${displayNum}</strong><br>${escapeHTML(p.ref.address)}`);
     mapLayers.push(m);
   });
 
-  map.fitBounds(coords, { padding: [40, 40] });
+  // Force-fix map dimensions (handles container that was hidden, tab switches, etc.)
+  setTimeout(() => {
+    map.invalidateSize();
+    if (coords.length > 0) {
+      try { map.fitBounds(coords, { padding: [40, 40] }); }
+      catch(e) { map.setView(coords[0], 13); }
+    }
+  }, 100);
 }
 
 /* ============================================================
@@ -2099,50 +2111,69 @@ async function handlePdfFile(file) {
 function extractEntriesFromText(text) {
   const lines = text.split("\n").map(l => l.trim()).filter(l => l.length > 0);
   const prefRe = /(北海道|青森県|岩手県|宮城県|秋田県|山形県|福島県|茨城県|栃木県|群馬県|埼玉県|千葉県|東京都|神奈川県|新潟県|富山県|石川県|福井県|山梨県|長野県|岐阜県|静岡県|愛知県|三重県|滋賀県|京都府|大阪府|兵庫県|奈良県|和歌山県|鳥取県|島根県|岡山県|広島県|山口県|徳島県|香川県|愛媛県|高知県|福岡県|佐賀県|長崎県|熊本県|大分県|宮崎県|鹿児島県|沖縄県)/;
+  const looseAddrRe = /[一-龯]{1,10}[市区町村].*?\d+[-‐－―ー]?\d+/;
   const hoursRe = /(\d{1,2})\s*[:：]\s*(\d{2})\s*[-〜～~ーー]\s*(\d{1,2})\s*[:：]\s*(\d{2})/;
   const skipRe = /^(ページ|page|店舗一覧|営業時間|住所|店舗名|tel|fax|電話|備考|no\.?|\d+\s*$)/i;
+  const postalRe = /〒\s*\d{3}-?\d{4}\s*/g;
 
   const entries = [];
   const usedNameIdx = new Set();
+  const isAddressLine = (line) => prefRe.test(line) || looseAddrRe.test(line);
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    if (!prefRe.test(line)) continue;
-    // Address line - clip from the prefecture onward, drop trailing tel-like patterns
-    const prefMatch = line.match(prefRe);
-    let address = line.substring(prefMatch.index).trim();
-    // Cut off trailing phone numbers
-    address = address.replace(/\s*(?:tel|TEL|電話|☎)[:：\s]*[\d\-()]+.*$/g, "").trim();
-    address = address.replace(/\s+\d{2,4}-\d{2,4}-\d{4}.*$/, "").trim();
+    if (!isAddressLine(line)) continue;
 
-    // Name: look back up to 3 lines for a non-address, non-hours, non-skip line
-    let name = "";
-    for (let j = i - 1; j >= Math.max(0, i - 3); j--) {
-      if (usedNameIdx.has(j)) continue;
-      const cand = lines[j];
-      if (prefRe.test(cand)) continue;
-      if (hoursRe.test(cand)) continue;
-      if (skipRe.test(cand)) continue;
-      if (cand.length < 2 || cand.length > 60) continue;
-      if (/^[\d\s\-()]+$/.test(cand)) continue; // pure numbers
-      name = cand;
-      usedNameIdx.add(j);
-      break;
+    // Find where address starts within the line
+    const prefMatch = line.match(prefRe);
+    const startIdx = prefMatch ? prefMatch.index : 0;
+
+    // Strip postal codes that often sit between name and prefecture
+    let beforeRaw = line.substring(0, startIdx);
+    const beforeClean = beforeRaw.replace(postalRe, "").trim();
+    let after = line.substring(startIdx);
+
+    // Pull hours out of the trailing address part
+    let hours = "";
+    const hoursInAddr = after.match(hoursRe);
+    if (hoursInAddr) {
+      hours = `${hoursInAddr[1].padStart(2,"0")}:${hoursInAddr[2]}-${hoursInAddr[3].padStart(2,"0")}:${hoursInAddr[4]}`;
+      after = after.substring(0, hoursInAddr.index).trim();
     }
-    // If name not found before, check the same line prefix
-    if (!name && prefMatch.index > 0) {
-      const before = line.substring(0, prefMatch.index).trim();
-      if (before.length >= 2 && before.length <= 60) name = before;
+    // Strip trailing telephones
+    after = after.replace(/\s*(?:tel|TEL|電話|☎)[:：\s]*[\d\-()]+.*$/g, "").trim();
+    after = after.replace(/\s+\d{2,4}-\d{2,4}-\d{4}.*$/, "").trim();
+    const address = after;
+
+    // NAME selection priority:
+    //   (a) the 'before' part of the same line (single-line tabular row)
+    //   (b) up to 3 lines above (multi-line layout)
+    let name = "";
+    if (beforeClean.length >= 2 && beforeClean.length <= 60 && !skipRe.test(beforeClean)) {
+      name = beforeClean;
+    }
+    if (!name) {
+      for (let j = i - 1; j >= Math.max(0, i - 3); j--) {
+        if (usedNameIdx.has(j)) continue;
+        const cand = lines[j].replace(postalRe, "").trim();
+        if (!cand || isAddressLine(cand) || hoursRe.test(cand) || skipRe.test(cand)) continue;
+        if (cand.length < 2 || cand.length > 60) continue;
+        if (/^[\d\s\-()]+$/.test(cand)) continue;
+        name = cand;
+        usedNameIdx.add(j);
+        break;
+      }
     }
     if (!name) name = `店舗${entries.length + 1}`;
 
-    // Hours: scan ±3 lines for a HH:MM-HH:MM pattern
-    let hours = "";
-    for (let j = Math.max(0, i - 2); j <= Math.min(lines.length - 1, i + 3); j++) {
-      const m = lines[j].match(hoursRe);
-      if (m) {
-        hours = `${m[1].padStart(2,"0")}:${m[2]}-${m[3].padStart(2,"0")}:${m[4]}`;
-        break;
+    // Hours: if still empty, scan ±2 lines
+    if (!hours) {
+      for (let j = Math.max(0, i - 2); j <= Math.min(lines.length - 1, i + 3); j++) {
+        const m = lines[j].match(hoursRe);
+        if (m) {
+          hours = `${m[1].padStart(2,"0")}:${m[2]}-${m[3].padStart(2,"0")}:${m[4]}`;
+          break;
+        }
       }
     }
 
@@ -2160,7 +2191,9 @@ function extractEntriesFromText(text) {
 function renderPdfPreview() {
   $("pdfPreviewBox").style.display = "block";
   $("pdfCount").textContent = `${pdfEntries.length}件`;
-  $("pdfRawText").textContent = pdfRawText;
+  $("pdfRawText").value = pdfRawText;
+  // Auto-open raw text when no entries were extracted (so user can edit and re-parse)
+  $("pdfRawWrap").open = pdfEntries.length === 0;
   $("pdfRows").innerHTML = pdfEntries.map((e, i) => `
     <div class="pdf-row">
       <input data-idx="${i}" data-field="name" value="${escapeHTML(e.name)}" placeholder="店舗名">
@@ -2185,10 +2218,12 @@ window.removePdfRow = function(idx) {
 };
 
 $("btnReparse").addEventListener("click", () => {
-  if (!pdfRawText) return;
+  // Use the current (possibly edited) textarea content as source
+  pdfRawText = $("pdfRawText").value;
+  if (!pdfRawText) { toast("生テキストが空です", true); return; }
   pdfEntries = extractEntriesFromText(pdfRawText);
   renderPdfPreview();
-  toast("再解析しました");
+  toast(`再解析: ${pdfEntries.length}件抽出`);
 });
 
 $("btnImportPdf").addEventListener("click", () => {
@@ -2252,33 +2287,33 @@ async function runDiagnostics() {
 
   const tests = [
     () => testEndpoint("Nominatim (OSM)", async () => {
-      const r = await fetch("https://nominatim.openstreetmap.org/search?format=json&q=tokyo&limit=1");
+      const r = await fetchWithTimeout("https://nominatim.openstreetmap.org/search?format=json&q=tokyo&limit=1", {}, 4000);
       if (!r.ok) return { ok: false, msg: `HTTP ${r.status}` };
       const d = await r.json();
       return { ok: Array.isArray(d) && d.length > 0, detail: `${d.length}件取得` };
     }),
     () => testEndpoint("Photon (Komoot)", async () => {
-      const r = await fetch("https://photon.komoot.io/api/?q=tokyo&limit=1");
+      const r = await fetchWithTimeout("https://photon.komoot.io/api/?q=tokyo&limit=1", {}, 4000);
       if (!r.ok) return { ok: false, msg: `HTTP ${r.status}` };
       const d = await r.json();
       return { ok: d.features && d.features.length > 0, detail: `${(d.features||[]).length}件取得` };
     }),
     () => testEndpoint("GSI 国土地理院 (直接)", async () => {
-      const r = await fetch("https://msearch.gsi.go.jp/address-search/AddressSearch?q=東京駅");
+      const r = await fetchWithTimeout("https://msearch.gsi.go.jp/address-search/AddressSearch?q=東京駅", {}, 4000);
       if (!r.ok) return { ok: false, msg: `HTTP ${r.status}` };
       const d = await r.json();
       return { ok: Array.isArray(d) && d.length > 0, detail: `${d.length}件取得` };
     }),
     () => testEndpoint("GSI (corsproxy.io 経由)", async () => {
       const target = "https://msearch.gsi.go.jp/address-search/AddressSearch?q=東京駅";
-      const r = await fetch(`https://corsproxy.io/?url=${encodeURIComponent(target)}`);
+      const r = await fetchWithTimeout(`https://corsproxy.io/?url=${encodeURIComponent(target)}`, {}, 4000);
       if (!r.ok) return { ok: false, msg: `HTTP ${r.status}` };
       const d = await r.json();
       return { ok: Array.isArray(d) && d.length > 0, detail: `${d.length}件取得` };
     }),
     () => testEndpoint("GSI (allorigins.win 経由)", async () => {
       const target = "https://msearch.gsi.go.jp/address-search/AddressSearch?q=東京駅";
-      const r = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(target)}`);
+      const r = await fetchWithTimeout(`https://api.allorigins.win/raw?url=${encodeURIComponent(target)}`, {}, 4000);
       if (!r.ok) return { ok: false, msg: `HTTP ${r.status}` };
       const d = await r.json();
       return { ok: Array.isArray(d) && d.length > 0, detail: `${d.length}件取得` };
