@@ -1801,7 +1801,7 @@ function drawMap() {
 const GMAPS_MAX_PER_LINK = 10; // origin + 8 waypoints + destination
 
 function buildMapsUrl(pts, loopToFirst) {
-  const fmt = p => `${p.lat},${p.lng}`;
+  const fmt = p => `${p.lat.toFixed(6)},${p.lng.toFixed(6)}`;
   const origin = fmt(pts[0]);
   let destination, waypoints;
   if (loopToFirst) {
@@ -1811,7 +1811,7 @@ function buildMapsUrl(pts, loopToFirst) {
     destination = fmt(pts[pts.length - 1]);
     waypoints = pts.slice(1, -1).map(fmt).join("|");
   }
-  let url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&travelmode=driving`;
+  let url = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&travelmode=driving`;
   if (waypoints) url += `&waypoints=${encodeURIComponent(waypoints)}`;
   return url;
 }
