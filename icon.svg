@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Background: deep ink -->
+  <rect width="512" height="512" fill="#14161c"/>
+
+  <!-- Subtle map grid -->
+  <g opacity="0.06" stroke="#fdfcf9" stroke-width="1">
+    <line x1="0" y1="128" x2="512" y2="128"/>
+    <line x1="0" y1="256" x2="512" y2="256"/>
+    <line x1="0" y1="384" x2="512" y2="384"/>
+    <line x1="128" y1="0" x2="128" y2="512"/>
+    <line x1="256" y1="0" x2="256" y2="512"/>
+    <line x1="384" y1="0" x2="384" y2="512"/>
+  </g>
+
+  <!-- Route path: 1 → 2 → 3 (dashed orange curve) -->
+  <path d="M 120 380 Q 180 200, 256 152 Q 332 200, 392 380"
+        fill="none"
+        stroke="#d94824"
+        stroke-width="14"
+        stroke-linecap="round"
+        stroke-dasharray="22,18"/>
+
+  <!-- Pin 1 (bottom-left) -->
+  <circle cx="120" cy="380" r="54" fill="#d94824"/>
+  <circle cx="120" cy="380" r="54" fill="none" stroke="#fdfcf9" stroke-width="5"/>
+  <text x="120" y="402" font-family="-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif"
+        font-size="60" font-weight="900" fill="#fdfcf9" text-anchor="middle">1</text>
+
+  <!-- Pin 2 (top center) -->
+  <circle cx="256" cy="140" r="54" fill="#d94824"/>
+  <circle cx="256" cy="140" r="54" fill="none" stroke="#fdfcf9" stroke-width="5"/>
+  <text x="256" y="162" font-family="-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif"
+        font-size="60" font-weight="900" fill="#fdfcf9" text-anchor="middle">2</text>
+
+  <!-- Pin 3 (bottom-right) -->
+  <circle cx="392" cy="380" r="54" fill="#d94824"/>
+  <circle cx="392" cy="380" r="54" fill="none" stroke="#fdfcf9" stroke-width="5"/>
+  <text x="392" y="402" font-family="-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif"
+        font-size="60" font-weight="900" fill="#fdfcf9" text-anchor="middle">3</text>
+</svg>
